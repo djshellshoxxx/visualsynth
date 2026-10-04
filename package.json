@@ -1,0 +1,16 @@
+{
+  "name": "visualsynth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:browser": "playwright test",
+    "serve": "vite --host 127.0.0.1 --port 4173"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "vite": "^7.1.7",
+    "vitest": "^3.2.4"
+  }
+}

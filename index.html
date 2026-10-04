@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#091019">
+  <title>VisualSynth</title>
+  <link rel="stylesheet" href="./styles/app.css">
+</head>
+<body>
+  <div class="app-shell" data-app-state="booting">
+    <header id="toolbar" class="toolbar" aria-label="VisualSynth toolbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">VS</span>
+        <div>
+          <strong>VisualSynth</strong>
+          <span>Patch. See. Hear. Learn.</span>
+        </div>
+      </div>
+      <div class="toolbar-actions" role="group" aria-label="Patch actions">
+        <button type="button" disabled>New</button>
+        <button type="button" disabled>Save</button>
+        <button type="button" disabled>Load</button>
+        <button type="button" class="accent" id="audio-start">Start audio</button>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <aside id="module-library" class="panel module-library" aria-label="Module library">
+        <div class="panel-heading">
+          <span>Modules</span>
+          <span class="status-dot" title="Foundation mode"></span>
+        </div>
+        <p>Core synth modules will appear here as the graph runtime comes online.</p>
+        <div class="module-placeholder-list" aria-hidden="true">
+          <span>OSC</span><span>MIX</span><span>FILTER</span><span>ADSR</span><span>LFO</span><span>VCA</span>
+        </div>
+      </aside>
+
+      <section id="workspace" class="workspace" aria-label="Patch workspace" tabindex="0">
+        <div class="workspace-grid" aria-hidden="true"></div>
+        <div class="empty-state">
+          <p class="eyebrow">Signal workspace</p>
+          <h1>Build sound by seeing how it moves.</h1>
+          <p>The modular graph, patch cables, controls, and live signal views will be assembled here.</p>
+        </div>
+      </section>
+
+      <aside id="master-monitor" class="panel master-monitor" aria-label="Master monitor">
+        <div class="panel-heading">Master</div>
+        <div class="meter" aria-label="Master output level" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0" role="meter">
+          <span></span>
+        </div>
+        <dl>
+          <div><dt>Audio</dt><dd id="audio-status">idle</dd></div>
+          <div><dt>Voices</dt><dd>0</dd></div>
+          <div><dt>CPU</dt><dd>--</dd></div>
+        </dl>
+      </aside>
+    </main>
+
+    <section id="keyboard" class="keyboard-panel" aria-label="Performance keyboard">
+      <div>
+        <strong>Keyboard</strong>
+        <span>Computer keys and MIDI input arrive in later MVP tasks.</span>
+      </div>
+      <div class="keys" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>

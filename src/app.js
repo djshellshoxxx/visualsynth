@@ -1,6 +1,8 @@
 import { AudioEngine } from './engine/audio-engine.js';
 import { compilePatchGraph } from './graph/compile.js';
 import { ComputerKeyboardInput } from './input/computer-keyboard.js';
+import { KeyboardView } from './ui/keyboard-view.js';
+import { MasterView } from './ui/master-view.js';
 import { WorkspaceController } from './ui/workspace.js';
 import { VisualizationScheduler } from './visual/scheduler.js';
 
@@ -12,7 +14,9 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   const status = document.querySelector('#audio-status');
   const workspaceRoot = document.querySelector('#workspace');
   const libraryRoot = document.querySelector('#module-library');
-  const meter = document.querySelector('#master-monitor [role="meter"]');
+  const keyboardRoot = document.querySelector('#keyboard');
+  const masterRoot = document.querySelector('#master-monitor');
+  const meter = masterRoot?.querySelector('[role="meter"]');
   const meterFill = meter?.querySelector('span');
   const voicesLabel = document.querySelector('#master-voices');
   const peakLabel = document.querySelector('#master-peak');
@@ -38,14 +42,16 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
     });
   }
 
-  const keyboard = new ComputerKeyboardInput({
-    frameProvider: () => engine.diagnostics().processor?.diagnostics?.currentFrame ?? 0,
-    onEvent: event => {
-      if (!engine.diagnostics().started) return;
-      try { engine.sendNote(event); } catch { /* Ignore input while unavailable/restarting. */ }
-    }
-  });
+  const currentFrame = () => engine.diagnostics().processor?.diagnostics?.currentFrame ?? 0;
+  const sendPerformanceEvent = event => {
+    if (!engine.diagnostics().started) return;
+    try { engine.sendNote(event); } catch { /* Ignore input while unavailable/restarting. */ }
+  };
+
+  const keyboard = new ComputerKeyboardInput({ frameProvider: currentFrame, onEvent: sendPerformanceEvent });
   keyboard.attach(globalThis);
+  const keyboardView = keyboardRoot ? new KeyboardView({ root: keyboardRoot, frameProvider: currentFrame, onEvent: sendPerformanceEvent }) : null;
+  const masterView = masterRoot ? new MasterView({ root: masterRoot, engine, initialGain: 0.8 }) : null;
 
   const visualizationScheduler = new VisualizationScheduler();
   visualizationScheduler.register(() => {
@@ -73,6 +79,7 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
       try {
         await engine.start();
         if (workspace) engine.applyCompiledGraph(compilePatchGraph(workspace.patch));
+        engine.setParameter('__master__', 'gain', masterView?.gain ?? 0.8);
         status.textContent = 'running';
         startButton.textContent = 'Audio running';
         shell.dataset.audioState = 'running';
@@ -90,8 +97,10 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   shell.visualSynthEngine = engine;
   shell.visualSynthWorkspace = workspace;
   shell.visualSynthKeyboard = keyboard;
+  shell.visualSynthKeyboardView = keyboardView;
+  shell.visualSynthMasterView = masterView;
   shell.visualSynthVisualizationScheduler = visualizationScheduler;
-  return { engine, workspace, keyboard, visualizationScheduler };
+  return { engine, workspace, keyboard, keyboardView, masterView, visualizationScheduler };
 }
 
 if (document.readyState === 'loading') {

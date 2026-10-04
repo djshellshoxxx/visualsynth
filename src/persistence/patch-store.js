@@ -1,0 +1,1 @@
+import {serializePatch,deserializePatch} from './patch-schema.js';export const saveLocal=(patch,key='visualsynth.patch')=>localStorage.setItem(key,serializePatch(patch));export const loadLocal=(key='visualsynth.patch')=>{const s=localStorage.getItem(key);return s?deserializePatch(s).patch:null};

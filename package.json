@@ -1,0 +1,7 @@
+{
+  "name":"visualsynth",
+  "version":"0.1.0-beta.1",
+  "private":true,
+  "type":"module",
+  "scripts":{"test":"node --test tests/unit/*.test.js","check":"node --check src/app.js && node --check src/engine/worklet-processor.js"}
+}

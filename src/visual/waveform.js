@@ -1,0 +1,1 @@
+export function drawWaveform(canvas,analyser){const c=canvas.getContext('2d'),n=analyser.fftSize,data=new Float32Array(n);analyser.getFloatTimeDomainData(data);c.clearRect(0,0,canvas.width,canvas.height);c.beginPath();for(let i=0;i<n;i++){const x=i/(n-1)*canvas.width,y=(.5-data[i]*.45)*canvas.height;i?c.lineTo(x,y):c.moveTo(x,y)}c.strokeStyle='#70f0ff';c.lineWidth=1.5;c.stroke()}

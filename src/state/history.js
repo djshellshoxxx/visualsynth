@@ -1,0 +1,2 @@
+import {reducePatch} from './actions.js';
+export class HistoryController{constructor(state){this.state=structuredClone(state);this.past=[];this.future=[]}apply(action){this.past.push(structuredClone(this.state));this.state=reducePatch(this.state,action);this.future=[];return this.state}undo(){if(!this.past.length)return this.state;this.future.push(structuredClone(this.state));this.state=this.past.pop();return this.state}redo(){if(!this.future.length)return this.state;this.past.push(structuredClone(this.state));this.state=this.future.pop();return this.state}}

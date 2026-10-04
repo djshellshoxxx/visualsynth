@@ -1,0 +1,1 @@
+import {TAU} from './math.js';export class LFO{constructor(sampleRate=48000){this.sampleRate=sampleRate;this.phase=0}next({rate=2,depth=1,unipolar=false}={}){const y=Math.sin(TAU*this.phase);this.phase=(this.phase+Math.max(0,rate)/this.sampleRate)%1;return(unipolar?(y+1)/2:y)*depth}}

@@ -1,0 +1,2 @@
+import {clamp,sanitizeSample} from './safety.js';
+export class StateVariableFilter{constructor(sampleRate=48000){this.sr=sampleRate;this.ic1=0;this.ic2=0}process(x,{cutoff=1000,resonance=.7,mode='lowpass'}={}){const f=2*Math.sin(Math.PI*Math.min(.45,clamp(cutoff,20,this.sr*.45)/this.sr)),q=1/Math.max(.1,resonance),hp=x-this.ic2-q*this.ic1,bp=f*hp+this.ic1,lp=f*bp+this.ic2;this.ic1=bp;this.ic2=lp;return sanitizeSample(mode==='highpass'?hp:mode==='bandpass'?bp:lp)}}

@@ -13,13 +13,8 @@ function waveformFrom(value) {
   return 'sine';
 }
 
-function finite(value, fallback = 0) {
-  return Number.isFinite(value) ? value : fallback;
-}
-
-function cloneGraph(graph) {
-  return typeof structuredClone === 'function' ? structuredClone(graph) : JSON.parse(JSON.stringify(graph));
-}
+function finite(value, fallback = 0) { return Number.isFinite(value) ? value : fallback; }
+function cloneGraph(graph) { return typeof structuredClone === 'function' ? structuredClone(graph) : JSON.parse(JSON.stringify(graph)); }
 
 export class WorkletRuntime {
   constructor({ sampleRate = 48000, maxVoices = 8 } = {}) {
@@ -34,6 +29,7 @@ export class WorkletRuntime {
     this.rejectedGraphSwaps = 0;
     this.panicLatched = false;
     this.lastPeak = 0;
+    this.masterGain = 1;
   }
 
   applyGraph(graph, revision = graph?.revision) {
@@ -72,7 +68,13 @@ export class WorkletRuntime {
   }
 
   setParameter(moduleId, parameterId, value) {
-    if (!this.graph || !Number.isFinite(value)) return false;
+    if (!Number.isFinite(value)) return false;
+    if (moduleId === '__master__' && parameterId === 'gain') {
+      this.masterGain = Math.max(0, Math.min(1.5, value));
+      this.parameterUpdates += 1;
+      return true;
+    }
+    if (!this.graph) return false;
     const node = this.graph.nodes.find(candidate => candidate.id === moduleId);
     if (!node) return false;
     node.parameters ??= {};
@@ -119,7 +121,6 @@ export class WorkletRuntime {
     const incoming = this.#incoming(node.id, values);
     const input = incoming.reduce((sum, value) => sum + finite(value), 0);
     const parameters = node.parameters ?? {};
-
     switch (node.type) {
       case 'core.oscillator': {
         const oscillator = this.nodeState.get(node.id);
@@ -130,14 +131,10 @@ export class WorkletRuntime {
         const filter = this.nodeState.get(node.id);
         return filter instanceof StateVariableFilter ? filter.processSample(input) : 0;
       }
-      case 'core.vca':
-        return applyVca(input, finite(parameters.gain, 1));
-      case 'core.mixer':
-        return sanitizeSample(input * finite(parameters.gain, 0.5));
-      case 'core.master-output':
-        return sanitizeSample(input * finite(parameters.gain, 0.8));
-      default:
-        return sanitizeSample(input);
+      case 'core.vca': return applyVca(input, finite(parameters.gain, 1));
+      case 'core.mixer': return sanitizeSample(input * finite(parameters.gain, 0.5));
+      case 'core.master-output': return sanitizeSample(input * finite(parameters.gain, 0.8));
+      default: return sanitizeSample(input);
     }
   }
 
@@ -153,7 +150,6 @@ export class WorkletRuntime {
 
     this.voiceEngine.processRange(this.currentFrame, this.currentFrame + blockLength);
     let peak = 0;
-
     for (let i = 0; i < blockLength; i += 1) {
       const values = new Map();
       let master = 0;
@@ -162,12 +158,11 @@ export class WorkletRuntime {
         values.set(node.id, value);
         if (node.type === 'core.master-output') master += value;
       }
-      const sample = sanitizeSample(master);
+      const sample = sanitizeSample(master * this.masterGain);
       left[i] = sample;
       right[i] = sample;
       peak = Math.max(peak, Math.abs(sample));
     }
-
     this.currentFrame += blockLength;
     this.lastPeak = peak;
     return { left, right };
@@ -182,7 +177,8 @@ export class WorkletRuntime {
       activeVoices: this.voiceEngine.voices().length,
       currentFrame: this.currentFrame,
       peak: this.lastPeak,
-      panic: this.panicLatched
+      panic: this.panicLatched,
+      masterGain: this.masterGain
     };
   }
 
@@ -190,36 +186,28 @@ export class WorkletRuntime {
     const validation = validateEngineMessage(message);
     if (!validation.valid) return { ok: false, errors: validation.errors };
     const payload = message.payload ?? {};
-
     switch (message.type) {
-      case EngineMessageType.INITIALIZE:
-        return { ok: true, diagnostics: this.diagnostics() };
-      case EngineMessageType.GRAPH_SWAP:
-        return { ok: this.applyGraph(payload.graph, payload.revision), diagnostics: this.diagnostics() };
-      case EngineMessageType.NOTE:
-        return { ok: this.handleNote(payload.event) };
-      case EngineMessageType.PARAMETER:
-        return { ok: this.setParameter(payload.moduleId, payload.parameterId, payload.value) };
+      case EngineMessageType.INITIALIZE: return { ok: true, diagnostics: this.diagnostics() };
+      case EngineMessageType.GRAPH_SWAP: return { ok: this.applyGraph(payload.graph, payload.revision), diagnostics: this.diagnostics() };
+      case EngineMessageType.NOTE: return { ok: this.handleNote(payload.event) };
+      case EngineMessageType.PARAMETER: return { ok: this.setParameter(payload.moduleId, payload.parameterId, payload.value) };
       case EngineMessageType.PANIC:
         this.panic(payload.frame ?? this.currentFrame);
         return { ok: true };
-      case EngineMessageType.DIAGNOSTICS:
-        return { ok: true, diagnostics: this.diagnostics() };
-      default:
-        return { ok: true };
+      case EngineMessageType.DIAGNOSTICS: return { ok: true, diagnostics: this.diagnostics() };
+      default: return { ok: true };
     }
   }
 }
 
 const ProcessorBase = globalThis.AudioWorkletProcessor;
-
 if (typeof ProcessorBase === 'function' && typeof globalThis.registerProcessor === 'function') {
   class VisualSynthProcessor extends ProcessorBase {
     constructor(options = {}) {
       super(options);
       this.runtime = new WorkletRuntime({ sampleRate: globalThis.sampleRate ?? 48000 });
       this.telemetryCounter = 0;
-      this.port.onmessage = (event) => {
+      this.port.onmessage = event => {
         const result = this.runtime.handleMessage(event.data);
         if (!result.ok || event.data?.type === EngineMessageType.DIAGNOSTICS) {
           this.port.postMessage({ type: EngineMessageType.DIAGNOSTICS, payload: result });
@@ -233,19 +221,14 @@ if (typeof ProcessorBase === 'function' && typeof globalThis.registerProcessor =
       const block = this.runtime.processBlock(output[0]?.length ?? 128);
       output[0]?.set(block.left);
       if (output[1]) output[1].set(block.right);
-
       this.telemetryCounter += 1;
       if (this.telemetryCounter >= 16) {
         this.telemetryCounter = 0;
         const diagnostics = this.runtime.diagnostics();
-        this.port.postMessage({
-          type: EngineMessageType.TELEMETRY,
-          payload: { revision: diagnostics.revision, peak: Math.min(1, diagnostics.peak), activeVoices: diagnostics.activeVoices }
-        });
+        this.port.postMessage({ type: EngineMessageType.TELEMETRY, payload: { revision: diagnostics.revision, peak: Math.min(1, diagnostics.peak), activeVoices: diagnostics.activeVoices } });
       }
       return true;
     }
   }
-
   globalThis.registerProcessor('visualsynth-processor', VisualSynthProcessor);
 }

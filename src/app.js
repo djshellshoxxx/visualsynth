@@ -22,9 +22,14 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
     workspace = new WorkspaceController({
       root: workspaceRoot,
       library: libraryRoot,
-      onPatchChange: patch => {
+      onPatchChange: (patch, change = { kind: 'topology' }) => {
         if (!engine.diagnostics().started) return;
         try {
+          if (change.kind === 'parameter' || change.kind === 'parameter-preview') {
+            engine.setParameter(change.moduleId, change.parameterId, change.value);
+            return;
+          }
+          if (change.kind === 'layout') return;
           engine.applyCompiledGraph(compilePatchGraph(patch));
         } catch (error) {
           workspace?.setStatus(error instanceof Error ? error.message : String(error), 'error');
@@ -37,11 +42,7 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
     frameProvider: () => engine.diagnostics().processor?.diagnostics?.currentFrame ?? 0,
     onEvent: event => {
       if (!engine.diagnostics().started) return;
-      try {
-        engine.sendNote(event);
-      } catch {
-        // Ignore input while the audio engine is unavailable/restarting.
-      }
+      try { engine.sendNote(event); } catch { /* Ignore input while unavailable/restarting. */ }
     }
   });
   keyboard.attach(globalThis);

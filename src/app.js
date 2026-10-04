@@ -2,6 +2,7 @@ import { AudioEngine } from './engine/audio-engine.js';
 import { compilePatchGraph } from './graph/compile.js';
 import { ComputerKeyboardInput } from './input/computer-keyboard.js';
 import { WorkspaceController } from './ui/workspace.js';
+import { VisualizationScheduler } from './visual/scheduler.js';
 
 export async function bootApp({ engine = new AudioEngine() } = {}) {
   const shell = document.querySelector('.app-shell');
@@ -11,6 +12,10 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   const status = document.querySelector('#audio-status');
   const workspaceRoot = document.querySelector('#workspace');
   const libraryRoot = document.querySelector('#module-library');
+  const meter = document.querySelector('#master-monitor [role="meter"]');
+  const meterFill = meter?.querySelector('span');
+  const voicesLabel = document.querySelector('#master-voices');
+  const peakLabel = document.querySelector('#master-peak');
 
   let workspace = null;
   if (workspaceRoot && libraryRoot) {
@@ -41,6 +46,23 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   });
   keyboard.attach(globalThis);
 
+  const visualizationScheduler = new VisualizationScheduler();
+  visualizationScheduler.register(() => {
+    const telemetry = engine.diagnostics().telemetry;
+    const peak = Math.max(0, Math.min(1, Number.isFinite(telemetry.peak) ? telemetry.peak : 0));
+    const activeVoices = Number.isInteger(telemetry.activeVoices) ? telemetry.activeVoices : 0;
+    if (meter) meter.setAttribute('aria-valuenow', String(peak));
+    if (meterFill) meterFill.style.height = `${Math.max(2, peak * 100)}%`;
+    if (voicesLabel) voicesLabel.textContent = String(activeVoices);
+    if (peakLabel) peakLabel.textContent = peak.toFixed(2);
+  }, 'high');
+
+  const visualizationFrame = timestamp => {
+    visualizationScheduler.frame(timestamp);
+    globalThis.requestAnimationFrame?.(visualizationFrame);
+  };
+  globalThis.requestAnimationFrame?.(visualizationFrame);
+
   if (startButton && status) {
     startButton.addEventListener('click', async () => {
       if (startButton.disabled) return;
@@ -67,7 +89,8 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   shell.visualSynthEngine = engine;
   shell.visualSynthWorkspace = workspace;
   shell.visualSynthKeyboard = keyboard;
-  return { engine, workspace, keyboard };
+  shell.visualSynthVisualizationScheduler = visualizationScheduler;
+  return { engine, workspace, keyboard, visualizationScheduler };
 }
 
 if (document.readyState === 'loading') {

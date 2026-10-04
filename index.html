@@ -29,9 +29,9 @@
       <aside id="module-library" class="panel module-library" aria-label="Module library">
         <div class="panel-heading">
           <span>Modules</span>
-          <span class="status-dot" title="Foundation mode"></span>
+          <span class="status-dot" title="MVP workspace"></span>
         </div>
-        <p>Core synth modules will appear here as the graph runtime comes online.</p>
+        <p>Add modules, move them with drag or arrow keys, then connect compatible ports.</p>
         <div class="module-placeholder-list" aria-hidden="true">
           <span>OSC</span><span>MIX</span><span>FILTER</span><span>ADSR</span><span>LFO</span><span>VCA</span>
         </div>
@@ -42,7 +42,7 @@
         <div class="empty-state">
           <p class="eyebrow">Signal workspace</p>
           <h1>Build sound by seeing how it moves.</h1>
-          <p>The modular graph, patch cables, controls, and live signal views will be assembled here.</p>
+          <p>Add a module from the library. Compatible ports can be connected by selecting an output and then an input.</p>
         </div>
       </section>
 
@@ -53,8 +53,8 @@
         </div>
         <dl>
           <div><dt>Audio</dt><dd id="audio-status">idle</dd></div>
-          <div><dt>Voices</dt><dd>0</dd></div>
-          <div><dt>CPU</dt><dd>--</dd></div>
+          <div><dt>Voices</dt><dd id="master-voices">0</dd></div>
+          <div><dt>Peak</dt><dd id="master-peak">0.00</dd></div>
         </dl>
       </aside>
     </main>
@@ -62,7 +62,7 @@
     <section id="keyboard" class="keyboard-panel" aria-label="Performance keyboard">
       <div>
         <strong>Keyboard</strong>
-        <span>Computer keys and MIDI input arrive in later MVP tasks.</span>
+        <span>Play A W S E D F T G Y H U J K. Use Z/X to shift octaves. MIDI support is optional.</span>
       </div>
       <div class="keys" aria-hidden="true">
         <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>

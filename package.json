@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:browser": "playwright test",
     "serve": "vite --host 127.0.0.1 --port 4173"
   },

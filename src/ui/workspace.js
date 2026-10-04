@@ -9,11 +9,7 @@ import { CableLayer } from './cable-layer.js';
 
 function ensureCoreRegistry() {
   for (const definition of CORE_MODULE_DEFINITIONS) {
-    try {
-      getModuleType(definition.typeId);
-    } catch {
-      registerModuleType(definition);
-    }
+    try { getModuleType(definition.typeId); } catch { registerModuleType(definition); }
   }
 }
 
@@ -56,9 +52,7 @@ export class WorkspaceController {
     this.render();
   }
 
-  get patch() {
-    return this.history.state;
-  }
+  get patch() { return this.history.state; }
 
   setStatus(message, kind = 'info') {
     this.status.textContent = message;
@@ -66,8 +60,7 @@ export class WorkspaceController {
   }
 
   renderLibrary() {
-    const oldList = this.library.querySelector('.module-placeholder-list');
-    oldList?.remove();
+    this.library.querySelector('.module-placeholder-list')?.remove();
     let list = this.library.querySelector('.module-library-list');
     if (!list) {
       list = document.createElement('div');
@@ -75,7 +68,6 @@ export class WorkspaceController {
       this.library.append(list);
     }
     list.replaceChildren();
-
     for (const raw of CORE_MODULE_DEFINITIONS) {
       const definition = getModuleType(raw.typeId);
       const button = document.createElement('button');
@@ -90,21 +82,15 @@ export class WorkspaceController {
 
   #nextPosition() {
     const index = Object.keys(this.patch.modules).length;
-    return { x: 36 + (index % 4) * 210, y: 36 + Math.floor(index / 4) * 210 };
+    return { x: 36 + (index % 4) * 250, y: 36 + Math.floor(index / 4) * 260 };
   }
 
   addModule(typeId) {
     const definition = getModuleType(typeId);
     const id = `module-${++this.moduleCounter}`;
-    this.history.apply(Actions.addModule({
-      id,
-      type: typeId,
-      scope: definition.defaultScope,
-      position: this.#nextPosition(),
-      parameters: defaultsFor(definition)
-    }));
+    this.history.apply(Actions.addModule({ id, type: typeId, scope: definition.defaultScope, position: this.#nextPosition(), parameters: defaultsFor(definition) }));
     this.setStatus(`Added ${definition.title}`);
-    this.#changed();
+    this.#changed({ kind: 'topology' });
     return id;
   }
 
@@ -113,10 +99,9 @@ export class WorkspaceController {
     if (!source) return false;
     const definition = getModuleType(source.type);
     const id = `module-${++this.moduleCounter}`;
-    const position = { x: (source.position?.x ?? 0) + 32, y: (source.position?.y ?? 0) + 32 };
-    this.history.apply(Actions.duplicateModule(moduleId, id, position));
+    this.history.apply(Actions.duplicateModule(moduleId, id, { x: (source.position?.x ?? 0) + 32, y: (source.position?.y ?? 0) + 32 }));
     this.setStatus(`Duplicated ${definition.title}`);
-    this.#changed();
+    this.#changed({ kind: 'topology' });
     return true;
   }
 
@@ -127,14 +112,28 @@ export class WorkspaceController {
     this.history.apply(Actions.removeModule(moduleId));
     if (this.pendingPort?.moduleId === moduleId) this.pendingPort = null;
     this.setStatus(`Removed ${definition.title}`);
-    this.#changed();
+    this.#changed({ kind: 'topology' });
     return true;
   }
 
   moveModule(moduleId, position) {
     if (!this.patch.modules[moduleId]) return false;
     this.history.apply(Actions.moveModule(moduleId, { x: Math.max(0, position.x), y: Math.max(0, position.y) }, { historyGroup: `move:${moduleId}` }));
-    this.#changed();
+    this.#changed({ kind: 'layout' });
+    return true;
+  }
+
+  previewParameter(moduleId, parameterId, value) {
+    if (!this.patch.modules[moduleId] || !Number.isFinite(value)) return false;
+    this.onPatchChange(structuredClone(this.patch), { kind: 'parameter-preview', moduleId, parameterId, value });
+    return true;
+  }
+
+  setParameter(moduleId, parameterId, value) {
+    if (!this.patch.modules[moduleId] || !Number.isFinite(value)) return false;
+    this.history.apply(Actions.setParameter(moduleId, parameterId, value, { historyGroup: `parameter:${moduleId}:${parameterId}` }));
+    this.setStatus(`Set ${parameterId}`);
+    this.#changed({ kind: 'parameter', moduleId, parameterId, value });
     return true;
   }
 
@@ -146,89 +145,70 @@ export class WorkspaceController {
       this.setStatus(`Selected ${port.signalType} ${port.direction} ${portId}`);
       return;
     }
-
     const first = this.pendingPort;
     first.element?.removeAttribute('data-pending');
     this.pendingPort = null;
-    if (first.moduleId === moduleId && first.portId === portId) {
-      this.setStatus('Connection cancelled');
-      return;
-    }
-
+    if (first.moduleId === moduleId && first.portId === portId) { this.setStatus('Connection cancelled'); return; }
     const endpoints = normalizedEndpoints(first, candidate);
-    if (!endpoints) {
-      this.setStatus('Incompatible ports: connect an output to an input', 'error');
-      return;
-    }
+    if (!endpoints) { this.setStatus('Incompatible ports: connect an output to an input', 'error'); return; }
 
     const connection = {
       id: `connection-${++this.connectionCounter}`,
       from: { moduleId: endpoints.from.moduleId, portId: endpoints.from.portId },
       to: { moduleId: endpoints.to.moduleId, portId: endpoints.to.portId }
     };
-
     let proposed;
-    try {
-      proposed = reducePatch(this.patch, Actions.addConnection(connection));
-    } catch (error) {
-      this.setStatus(error instanceof Error ? error.message : String(error), 'error');
-      return;
-    }
-
+    try { proposed = reducePatch(this.patch, Actions.addConnection(connection)); }
+    catch (error) { this.setStatus(error instanceof Error ? error.message : String(error), 'error'); return; }
     const validation = validatePatchGraph(proposed);
-    if (!validation.valid) {
-      this.setStatus(validation.errors[0] ?? 'Incompatible connection', 'error');
-      return;
-    }
-
+    if (!validation.valid) { this.setStatus(validation.errors[0] ?? 'Incompatible connection', 'error'); return; }
     this.history.apply(Actions.addConnection(connection));
     this.setStatus(`Connected ${connection.from.portId} → ${connection.to.portId}`);
-    this.#changed();
+    this.#changed({ kind: 'topology' });
   }
 
   removeConnection(connectionId) {
     if (!this.patch.connections.some(connection => connection.id === connectionId)) return false;
     this.history.apply(Actions.removeConnection(connectionId));
     this.setStatus('Disconnected cable');
-    this.#changed();
+    this.#changed({ kind: 'topology' });
     return true;
   }
 
   undo() {
     if (!this.history.undo()) return false;
     this.setStatus('Undo');
-    this.#changed();
+    this.#changed({ kind: 'history' });
     return true;
   }
 
   redo() {
     if (!this.history.redo()) return false;
     this.setStatus('Redo');
-    this.#changed();
+    this.#changed({ kind: 'history' });
     return true;
   }
 
-  #changed() {
+  #changed(meta = { kind: 'topology' }) {
     this.render();
-    this.onPatchChange(structuredClone(this.patch));
+    this.onPatchChange(structuredClone(this.patch), meta);
   }
 
   render() {
     this.stage.replaceChildren();
     for (const instance of Object.values(this.patch.modules)) {
       const definition = getModuleType(instance.type);
-      const card = createModuleElement(instance, definition, {
+      this.stage.append(createModuleElement(instance, definition, {
         onPort: (moduleId, portId, port, element) => this.handlePort(moduleId, portId, port, element),
         onDuplicate: moduleId => this.duplicateModule(moduleId),
         onRemove: moduleId => this.removeModule(moduleId),
-        onMove: (moduleId, position) => this.moveModule(moduleId, position)
-      });
-      this.stage.append(card);
+        onMove: (moduleId, position) => this.moveModule(moduleId, position),
+        onParameterPreview: (moduleId, parameterId, value) => this.previewParameter(moduleId, parameterId, value),
+        onParameter: (moduleId, parameterId, value) => this.setParameter(moduleId, parameterId, value)
+      }));
     }
-
     const empty = this.root.querySelector('.empty-state');
     if (empty) empty.hidden = Object.keys(this.patch.modules).length > 0;
-
     requestAnimationFrame(() => this.cables.render(this.patch.connections));
   }
 }

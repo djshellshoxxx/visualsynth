@@ -12,7 +12,7 @@ export class MasterView {
 
   #sendGain(value) {
     this.gain = Math.max(0, Math.min(1.5, Number(value) || 0));
-    try { this.engine.setParameter('master-output', 'gain', this.gain); } catch { /* no compiled master yet */ }
+    try { this.engine.setParameter('__master__', 'gain', this.gain); } catch { /* engine may not be started yet */ }
   }
 
   renderControls() {
@@ -43,7 +43,6 @@ export class MasterView {
       this.#sendGain(Number(slider.value));
       this.lastUnmutedGain = this.gain || this.lastUnmutedGain;
       value.textContent = this.gain.toFixed(2);
-      this.renderControls();
     });
     gainLabel.append(heading, value, slider);
 

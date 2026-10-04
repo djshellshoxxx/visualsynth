@@ -1,0 +1,66 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #070b10;
+  color: #e7eef7;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at 30% 0%, #122031 0, #070b10 45%); }
+button { font: inherit; color: inherit; }
+button:disabled { opacity: .4; cursor: not-allowed; }
+
+.app-shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+.toolbar { min-height: 72px; display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem 1rem; border-bottom: 1px solid #25303d; background: rgba(7, 11, 16, .92); backdrop-filter: blur(12px); }
+.brand { display: flex; align-items: center; gap: .75rem; }
+.brand-mark { width: 2.6rem; height: 2.6rem; display: grid; place-items: center; border: 1px solid #3b8dbd; color: #7fd5ff; font-weight: 800; letter-spacing: .06em; }
+.brand strong, .brand span { display: block; }
+.brand span { margin-top: .15rem; color: #8092a6; font-size: .75rem; }
+.toolbar-actions { display: flex; flex-wrap: wrap; gap: .45rem; }
+.toolbar-actions button { border: 1px solid #334052; border-radius: .35rem; background: #111923; padding: .55rem .75rem; }
+.toolbar-actions .accent { border-color: #3b8dbd; color: #a9e3ff; }
+
+.main-grid { min-height: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr) 180px; }
+.panel { background: rgba(10, 15, 22, .92); padding: 1rem; }
+.module-library { border-right: 1px solid #25303d; }
+.master-monitor { border-left: 1px solid #25303d; }
+.panel-heading { display: flex; align-items: center; justify-content: space-between; text-transform: uppercase; letter-spacing: .12em; font-size: .75rem; color: #94abc1; }
+.panel p { color: #76889c; line-height: 1.45; font-size: .88rem; }
+.status-dot { width: .5rem; height: .5rem; border-radius: 999px; background: #3b8dbd; box-shadow: 0 0 12px #3b8dbd; }
+.module-placeholder-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem; }
+.module-placeholder-list span { padding: .65rem .45rem; border: 1px solid #273546; background: #0d141d; color: #8ca4ba; font: 700 .7rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.workspace { position: relative; overflow: hidden; min-height: 540px; outline: none; }
+.workspace:focus-visible { box-shadow: inset 0 0 0 2px #3b8dbd; }
+.workspace-grid { position: absolute; inset: 0; opacity: .22; background-image: linear-gradient(#293542 1px, transparent 1px), linear-gradient(90deg, #293542 1px, transparent 1px); background-size: 24px 24px; }
+.empty-state { position: relative; z-index: 1; max-width: 680px; padding: clamp(3rem, 8vw, 8rem) clamp(2rem, 8vw, 7rem); }
+.eyebrow { margin: 0 0 .75rem; color: #6bbce9; text-transform: uppercase; letter-spacing: .18em; font-size: .72rem; font-weight: 800; }
+.empty-state h1 { margin: 0; max-width: 12ch; font-size: clamp(2.2rem, 5vw, 5.5rem); line-height: .98; letter-spacing: -.045em; }
+.empty-state p:last-child { max-width: 52ch; color: #8fa1b4; line-height: 1.6; }
+
+.meter { position: relative; height: 180px; margin: 1.2rem 0; border: 1px solid #263544; background: linear-gradient(to top, #11202a, #0a0f16); }
+.meter span { position: absolute; left: 0; right: 0; bottom: 0; height: 2%; background: #3b8dbd; }
+dl { margin: 0; }
+dl div { display: flex; justify-content: space-between; gap: .5rem; padding: .42rem 0; border-bottom: 1px solid #1d2733; font-size: .78rem; }
+dt { color: #718499; }
+dd { margin: 0; color: #afc0d1; }
+
+.keyboard-panel { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem 1rem; border-top: 1px solid #25303d; background: #090e14; }
+.keyboard-panel strong, .keyboard-panel span { display: block; }
+.keyboard-panel span { margin-top: .2rem; color: #718499; font-size: .75rem; }
+.keys { display: flex; height: 52px; }
+.keys span { width: 28px; height: 52px; margin: 0 1px; border: 1px solid #455363; background: #dbe3ea; }
+
+@media (max-width: 900px) {
+  .main-grid { grid-template-columns: 170px minmax(0, 1fr); }
+  .master-monitor { display: none; }
+}
+
+@media (max-width: 680px) {
+  .toolbar { align-items: flex-start; flex-direction: column; }
+  .main-grid { display: block; }
+  .module-library { border-right: 0; border-bottom: 1px solid #25303d; }
+  .workspace { min-height: 420px; }
+  .empty-state { padding: 4rem 1.25rem; }
+  .keyboard-panel { align-items: flex-start; flex-direction: column; overflow: hidden; }
+}

@@ -58,6 +58,33 @@ describe('WorkletRuntime', () => {
     expect(runtime.diagnostics().parameterUpdates).toBe(1);
   });
 
+  test('keeps active voice state across a valid graph hot swap', () => {
+    const runtime = new WorkletRuntime({ sampleRate: 48000 });
+    runtime.applyGraph(simpleGraph(1), 1);
+    runtime.handleNote({ type: 'note-on', note: 60, velocity: 1, frame: 0 });
+    runtime.processBlock(32);
+    expect(runtime.diagnostics().activeVoices).toBe(1);
+
+    const next = simpleGraph(2);
+    next.nodes[0].parameters.amplitude = 0.1;
+    expect(runtime.applyGraph(next, 2)).toBe(true);
+    expect(runtime.diagnostics().activeVoices).toBe(1);
+    const block = runtime.processBlock(32);
+    expect([...block.left, ...block.right].every(Number.isFinite)).toBe(true);
+  });
+
+  test('rejects a malformed graph without replacing the running revision', () => {
+    const runtime = new WorkletRuntime({ sampleRate: 48000 });
+    runtime.applyGraph(simpleGraph(5), 5);
+    const before = runtime.processBlock(16);
+    expect(before.left.some(sample => Math.abs(sample) > 0)).toBe(true);
+
+    expect(runtime.applyGraph({ formatVersion: 1, nodes: [{ id: 'broken' }], connections: [] }, 6)).toBe(false);
+    expect(runtime.revision).toBe(5);
+    const after = runtime.processBlock(16);
+    expect(after.left.some(sample => Math.abs(sample) > 0)).toBe(true);
+  });
+
   test('panic clears active voices and returns silence until new activity', () => {
     const runtime = new WorkletRuntime({ sampleRate: 48000 });
     runtime.applyGraph(simpleGraph(1), 1);

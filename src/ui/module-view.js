@@ -1,3 +1,22 @@
+import { createGenericModuleBody } from '../modules/module-ui-helpers.js';
+import { createOscillatorModuleBody } from '../modules/oscillator-module.js';
+import { createMixerModuleBody } from '../modules/mixer-module.js';
+import { createFilterModuleBody } from '../modules/filter-module.js';
+import { createEnvelopeModuleBody } from '../modules/envelope-module.js';
+import { createLfoModuleBody } from '../modules/lfo-module.js';
+import { createVcaModuleBody } from '../modules/vca-module.js';
+import { createMasterModuleBody } from '../modules/master-module.js';
+
+const BODY_FACTORIES = Object.freeze({
+  'core.oscillator': createOscillatorModuleBody,
+  'core.mixer': createMixerModuleBody,
+  'core.filter': createFilterModuleBody,
+  'core.adsr': createEnvelopeModuleBody,
+  'core.lfo': createLfoModuleBody,
+  'core.vca': createVcaModuleBody,
+  'core.master-output': createMasterModuleBody
+});
+
 function portLabel(port) {
   return `${port.direction === 'output' ? 'Output' : 'Input'} ${port.label ?? port.id}, ${port.signalType}`;
 }
@@ -42,6 +61,9 @@ export function createModuleElement(instance, definition, handlers = {}) {
   }
   card.append(ports);
 
+  const createBody = BODY_FACTORIES[instance.type] ?? createGenericModuleBody;
+  card.append(createBody(instance, definition, handlers));
+
   const footer = document.createElement('footer');
   footer.className = 'module-card-actions';
   const duplicate = document.createElement('button');
@@ -58,6 +80,7 @@ export function createModuleElement(instance, definition, handlers = {}) {
   card.append(footer);
 
   card.addEventListener('keydown', event => {
+    if (event.target !== card) return;
     const step = event.shiftKey ? 48 : 24;
     let dx = 0;
     let dy = 0;

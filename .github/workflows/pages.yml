@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - codex/visualsynth-mvp
   workflow_dispatch:
 
 permissions:

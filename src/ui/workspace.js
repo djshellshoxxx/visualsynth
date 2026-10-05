@@ -4,6 +4,7 @@ import { createPatchState, reducePatch } from '../state/patch-state.js';
 import { getModuleType, registerModuleType } from '../graph/registry.js';
 import { validatePatchGraph } from '../graph/validate.js';
 import { CORE_MODULE_DEFINITIONS } from '../modules/core-definitions.js';
+import { moduleHelp, portHelp, wiringMismatchHelp } from '../help/guidance.js';
 import { createModuleElement } from './module-view.js';
 import { CableLayer } from './cable-layer.js';
 
@@ -74,7 +75,10 @@ export class WorkspaceController {
       button.type = 'button';
       button.dataset.moduleType = definition.typeId;
       button.textContent = definition.title;
+      const guidance = moduleHelp(definition.typeId);
+      button.title = `Add ${definition.title}. ${guidance}`;
       button.setAttribute('aria-label', `Add ${definition.title}`);
+      button.setAttribute('aria-description', guidance);
       button.addEventListener('click', () => this.addModule(definition.typeId));
       list.append(button);
     }
@@ -89,7 +93,7 @@ export class WorkspaceController {
     const definition = getModuleType(typeId);
     const id = `module-${++this.moduleCounter}`;
     this.history.apply(Actions.addModule({ id, type: typeId, scope: definition.defaultScope, position: this.#nextPosition(), parameters: defaultsFor(definition) }));
-    this.setStatus(`Added ${definition.title}`);
+    this.setStatus(`Added ${definition.title}. ${moduleHelp(typeId)}`);
     this.#changed({ kind: 'topology' });
     return id;
   }
@@ -142,7 +146,7 @@ export class WorkspaceController {
     if (!this.pendingPort) {
       this.pendingPort = candidate;
       element.dataset.pending = 'true';
-      this.setStatus(`Selected ${port.signalType} ${port.direction} ${portId}`);
+      this.setStatus(`Selected ${String(port.signalType).toUpperCase()} ${port.direction} ${portId}. ${portHelp(port)}`);
       return;
     }
     const first = this.pendingPort;
@@ -150,7 +154,7 @@ export class WorkspaceController {
     this.pendingPort = null;
     if (first.moduleId === moduleId && first.portId === portId) { this.setStatus('Connection cancelled'); return; }
     const endpoints = normalizedEndpoints(first, candidate);
-    if (!endpoints) { this.setStatus('Incompatible ports: connect an output to an input', 'error'); return; }
+    if (!endpoints) { this.setStatus(wiringMismatchHelp(first.port, candidate.port), 'error'); return; }
 
     const connection = {
       id: `connection-${++this.connectionCounter}`,
@@ -161,9 +165,13 @@ export class WorkspaceController {
     try { proposed = reducePatch(this.patch, Actions.addConnection(connection)); }
     catch (error) { this.setStatus(error instanceof Error ? error.message : String(error), 'error'); return; }
     const validation = validatePatchGraph(proposed);
-    if (!validation.valid) { this.setStatus(validation.errors[0] ?? 'Incompatible connection', 'error'); return; }
+    if (!validation.valid) {
+      const primary = validation.errors[0] ?? 'Incompatible connection';
+      this.setStatus(`${primary}. ${wiringMismatchHelp(endpoints.from.port, endpoints.to.port)}`, 'error');
+      return;
+    }
     this.history.apply(Actions.addConnection(connection));
-    this.setStatus(`Connected ${connection.from.portId} → ${connection.to.portId}`);
+    this.setStatus(`Connected ${connection.from.portId} → ${connection.to.portId}. Signal path is valid.`);
     this.#changed({ kind: 'topology' });
   }
 

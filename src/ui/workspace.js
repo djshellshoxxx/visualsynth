@@ -3,13 +3,13 @@ import { HistoryController } from '../state/history.js';
 import { createPatchState, reducePatch } from '../state/patch-state.js';
 import { getModuleType, registerModuleType } from '../graph/registry.js';
 import { validatePatchGraph } from '../graph/validate.js';
-import { CORE_MODULE_DEFINITIONS } from '../modules/core-definitions.js';
+import { AVAILABLE_MODULE_DEFINITIONS } from '../modules/available-definitions.js';
 import { moduleHelp, portHelp, wiringMismatchHelp } from '../help/guidance.js';
 import { createModuleElement } from './module-view.js';
 import { CableLayer } from './cable-layer.js';
 
-function ensureCoreRegistry() {
-  for (const definition of CORE_MODULE_DEFINITIONS) {
+function ensureAvailableRegistry() {
+  for (const definition of AVAILABLE_MODULE_DEFINITIONS) {
     try { getModuleType(definition.typeId); } catch { registerModuleType(definition); }
   }
 }
@@ -28,7 +28,7 @@ export class WorkspaceController {
   constructor({ root, library, onPatchChange = () => {}, initialPatch = createPatchState() } = {}) {
     if (!root) throw new Error('Workspace root is required');
     if (!library) throw new Error('Module library root is required');
-    ensureCoreRegistry();
+    ensureAvailableRegistry();
     this.root = root;
     this.library = library;
     this.onPatchChange = onPatchChange;
@@ -69,7 +69,7 @@ export class WorkspaceController {
       this.library.append(list);
     }
     list.replaceChildren();
-    for (const raw of CORE_MODULE_DEFINITIONS) {
+    for (const raw of AVAILABLE_MODULE_DEFINITIONS) {
       const definition = getModuleType(raw.typeId);
       const button = document.createElement('button');
       button.type = 'button';

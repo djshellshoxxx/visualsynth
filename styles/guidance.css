@@ -18,6 +18,12 @@
 .keyboard-controls button { border: 1px solid #334052; border-radius: .3rem; background: #111923; color: #b9cbda; padding: .4rem .55rem; }
 .playable-keys .piano-key { width: 30px; height: 52px; margin: 0 1px; border: 1px solid #455363; background: #dbe3ea; cursor: pointer; }
 .playable-keys .piano-key[aria-pressed="true"] { transform: translateY(2px); filter: brightness(.75); }
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot { box-shadow: none !important; }
+  .module-card, .piano-key, .module-port, button { transition-duration: 0s !important; animation: none !important; }
+}
+
 @media (max-width: 760px) {
   .wiring-guide { align-items: flex-start; flex-direction: column; gap: .25rem; }
   .example-picker { width: 100%; justify-content: space-between; }

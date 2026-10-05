@@ -1,4 +1,4 @@
-import { createGenericModuleBody, createPredictedCanvas, drawNormalizedCurve } from './module-ui-helpers.js';
+import { bindPredictedVisual, createGenericModuleBody, createPredictedCanvas, drawNormalizedCurve } from './module-ui-helpers.js';
 
 function clamp(value, min = 0, max = 1) {
   return Math.max(min, Math.min(max, Number.isFinite(value) ? value : min));
@@ -6,29 +6,33 @@ function clamp(value, min = 0, max = 1) {
 
 function distortionVisual(instance) {
   const { figure, canvas } = createPredictedCanvas('distortion', 'distortion transfer curve');
-  const drive = clamp(instance.parameters?.drive ?? 3, 1, 20);
-  const mix = clamp(instance.parameters?.mix ?? 0.7);
-  drawNormalizedCurve(canvas, t => {
-    const x = t * 2 - 1;
-    const wet = Math.tanh(x * drive * 0.75);
-    return x * (1 - mix) + wet * mix;
+  bindPredictedVisual(canvas, instance.parameters, parameters => {
+    const drive = clamp(parameters.drive ?? 3, 1, 20);
+    const mix = clamp(parameters.mix ?? 0.7);
+    drawNormalizedCurve(canvas, t => {
+      const x = t * 2 - 1;
+      const wet = Math.tanh(x * drive * 0.75);
+      return x * (1 - mix) + wet * mix;
+    });
   });
   return figure;
 }
 
 function delayVisual(instance, kind) {
   const { figure, canvas } = createPredictedCanvas(kind, `${kind} repeat pattern`);
-  const feedback = clamp(instance.parameters?.feedback ?? (kind === 'echo' ? 0.58 : 0.3), 0, 0.92);
-  const mix = clamp(instance.parameters?.mix ?? (kind === 'echo' ? 0.42 : 0.35));
-  const repeats = kind === 'echo' ? 8 : 5;
-  drawNormalizedCurve(canvas, t => {
-    const position = t * repeats;
-    const index = Math.round(position);
-    const distance = Math.abs(position - index);
-    if (distance > 0.14) return 0;
-    const level = index === 0 ? 1 - mix : mix * Math.pow(feedback, Math.max(0, index - 1));
-    return level * (1 - distance / 0.14);
-  }, 120);
+  bindPredictedVisual(canvas, instance.parameters, parameters => {
+    const feedback = clamp(parameters.feedback ?? (kind === 'echo' ? 0.58 : 0.3), 0, 0.92);
+    const mix = clamp(parameters.mix ?? (kind === 'echo' ? 0.42 : 0.35));
+    const repeats = kind === 'echo' ? 8 : 5;
+    drawNormalizedCurve(canvas, t => {
+      const position = t * repeats;
+      const index = Math.round(position);
+      const distance = Math.abs(position - index);
+      if (distance > 0.14) return 0;
+      const level = index === 0 ? 1 - mix : mix * Math.pow(feedback, Math.max(0, index - 1));
+      return level * (1 - distance / 0.14);
+    }, 120);
+  });
   return figure;
 }
 

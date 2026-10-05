@@ -33,6 +33,12 @@ export function drawNormalizedCurve(canvas, sampleAt, points = 96) {
   context.stroke();
 }
 
+export function bindPredictedVisual(canvas, initialParameters, draw) {
+  canvas.visualSynthRefresh = parameters => draw(parameters ?? {});
+  canvas.visualSynthRefresh(initialParameters ?? {});
+  return canvas;
+}
+
 export function createGenericModuleBody(instance, definition, handlers, visualFactory) {
   const body = document.createElement('div');
   body.className = 'module-body';

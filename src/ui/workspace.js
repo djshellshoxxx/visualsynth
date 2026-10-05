@@ -134,8 +134,20 @@ export class WorkspaceController {
     return true;
   }
 
+  #refreshModuleVisual(moduleId, parameterId, value) {
+    const instance = this.patch.modules[moduleId];
+    if (!instance) return;
+    const parameters = { ...(instance.parameters ?? {}), [parameterId]: value };
+    const card = this.stage.querySelector(`[data-module-id="${CSS.escape(moduleId)}"]`);
+    if (!card) return;
+    for (const canvas of card.querySelectorAll('canvas[data-module-visual]')) {
+      if (typeof canvas.visualSynthRefresh === 'function') canvas.visualSynthRefresh(parameters);
+    }
+  }
+
   previewParameter(moduleId, parameterId, value) {
     if (!this.patch.modules[moduleId] || !Number.isFinite(value)) return false;
+    this.#refreshModuleVisual(moduleId, parameterId, value);
     this.onPatchChange(structuredClone(this.patch), { kind: 'parameter-preview', moduleId, parameterId, value });
     return true;
   }
@@ -143,6 +155,7 @@ export class WorkspaceController {
   setParameter(moduleId, parameterId, value) {
     if (!this.patch.modules[moduleId] || !Number.isFinite(value)) return false;
     this.history.apply(Actions.setParameter(moduleId, parameterId, value, { historyGroup: `parameter:${moduleId}:${parameterId}` }));
+    this.#refreshModuleVisual(moduleId, parameterId, value);
     this.setStatus(`Set ${parameterId}`);
     this.#changed({ kind: 'parameter', moduleId, parameterId, value });
     return true;

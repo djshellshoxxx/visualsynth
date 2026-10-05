@@ -12,13 +12,21 @@ class FakeNode {
 }
 
 class FakeContext {
-  constructor() {
+  constructor(order = []) {
     this.state = 'suspended';
     this.destination = { id: 'destination' };
-    this.audioWorklet = { modules: [], addModule: async url => { this.audioWorklet.modules.push(url); } };
+    this.order = order;
+    this.audioWorklet = { modules: [], addModule: async url => {
+      this.order.push('addModule');
+      this.audioWorklet.modules.push(url);
+    } };
     this.resumeCount = 0;
   }
-  async resume() { this.state = 'running'; this.resumeCount += 1; }
+  async resume() {
+    this.order.push('resume');
+    this.state = 'running';
+    this.resumeCount += 1;
+  }
 }
 
 describe('AudioEngine', () => {
@@ -37,6 +45,19 @@ describe('AudioEngine', () => {
     expect(contexts).toBe(1);
     expect(nodes).toBe(1);
     expect(engine.diagnostics().started).toBe(true);
+  });
+
+  test('resumes the audio context before loading the worklet module', async () => {
+    const order = [];
+    const engine = new AudioEngine({
+      contextFactory: () => new FakeContext(order),
+      nodeFactory: () => new FakeNode(),
+      workletUrl: './worklet-processor.js'
+    });
+
+    await engine.start();
+
+    expect(order).toEqual(['resume', 'addModule']);
   });
 
   test('sends graph, note, parameter and panic protocol messages', async () => {

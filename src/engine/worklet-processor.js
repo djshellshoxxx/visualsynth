@@ -1,4 +1,5 @@
 import { Oscillator } from '../dsp/oscillator.js';
+import { NoiseGenerator } from '../dsp/noise.js';
 import { StateVariableFilter } from '../dsp/filters.js';
 import { applyVca } from '../dsp/vca.js';
 import { sanitizeSample } from '../dsp/safety.js';
@@ -6,6 +7,7 @@ import { VoiceEngine } from './voice-engine.js';
 import { EngineMessageType, validateEngineMessage } from './protocol.js';
 
 const WAVEFORMS = ['sine', 'triangle', 'saw', 'reverse-saw', 'square', 'pulse', 'sine'];
+const NOISE_TYPES = ['white', 'pink', 'brown'];
 
 function waveformFrom(value) {
   if (typeof value === 'string') return value;
@@ -13,9 +15,21 @@ function waveformFrom(value) {
   return 'sine';
 }
 
+function noiseTypeFrom(value) {
+  if (typeof value === 'string') return NOISE_TYPES.includes(value) ? value : 'white';
+  if (Number.isInteger(value)) return NOISE_TYPES[value] ?? 'white';
+  return 'white';
+}
+
 function finite(value, fallback = 0) { return Number.isFinite(value) ? value : fallback; }
 function cloneGraph(graph) { return typeof structuredClone === 'function' ? structuredClone(graph) : JSON.parse(JSON.stringify(graph)); }
 function midiNoteToHz(note) { return 440 * (2 ** ((finite(note, 69) - 69) / 12)); }
+function voiceSeed(baseSeed, voiceId) {
+  let hash = Math.trunc(finite(baseSeed, 1)) >>> 0;
+  const text = String(voiceId ?? 0);
+  for (let index = 0; index < text.length; index += 1) hash = Math.imul(hash ^ text.charCodeAt(index), 16777619) >>> 0;
+  return hash || 1;
+}
 
 export class WorkletRuntime {
   constructor({ sampleRate = 48000, maxVoices = 8 } = {}) {
@@ -50,6 +64,11 @@ export class WorkletRuntime {
           waveform: waveformFrom(node.parameters?.waveform),
           frequency: finite(node.parameters?.frequency, 220),
           pulseWidth: finite(node.parameters?.pulseWidth, 0.5)
+        }));
+      } else if (node.type === 'standard.noise' && node.scope !== 'voice') {
+        nextState.set(node.id, new NoiseGenerator({
+          seed: finite(node.parameters?.seed, 1),
+          type: noiseTypeFrom(node.parameters?.type)
         }));
       } else if (node.type === 'core.filter') {
         nextState.set(node.id, new StateVariableFilter({
@@ -89,17 +108,29 @@ export class WorkletRuntime {
       if (parameterId === 'pulseWidth') oscillator.pulseWidth = Math.max(0.01, Math.min(0.99, value));
       if (parameterId === 'waveform') oscillator.waveform = waveformFrom(value);
     };
+    const updateNoise = noise => {
+      if (!(noise instanceof NoiseGenerator)) return;
+      if (parameterId === 'type') noise.type = noiseTypeFrom(value);
+      if (parameterId === 'seed') {
+        noise.seed = voiceSeed(value, 0);
+        noise.reset();
+      }
+    };
 
     const state = this.nodeState.get(moduleId);
     if (state instanceof Oscillator) {
       updateOscillator(state);
+    } else if (state instanceof NoiseGenerator) {
+      updateNoise(state);
     } else if (state instanceof StateVariableFilter) {
       if (parameterId === 'cutoff') state.setCutoff(value);
       if (parameterId === 'resonance') state.setResonance(value);
     }
 
     for (const [key, voiceState] of this.voiceNodeState) {
-      if (key.startsWith(`${moduleId}:`)) updateOscillator(voiceState);
+      if (!key.startsWith(`${moduleId}:`)) continue;
+      updateOscillator(voiceState);
+      updateNoise(voiceState);
     }
 
     this.parameterUpdates += 1;
@@ -180,6 +211,39 @@ export class WorkletRuntime {
     return sanitizeSample(sum / Math.sqrt(activeSignals.length));
   }
 
+  #voiceNoise(node, signal) {
+    const key = `${node.id}:${signal.voiceId}`;
+    let noise = this.voiceNodeState.get(key);
+    const parameters = node.parameters ?? {};
+    if (!(noise instanceof NoiseGenerator)) {
+      noise = new NoiseGenerator({
+        seed: voiceSeed(parameters.seed, signal.voiceId),
+        type: noiseTypeFrom(parameters.type)
+      });
+      this.voiceNodeState.set(key, noise);
+    } else {
+      noise.type = noiseTypeFrom(parameters.type);
+    }
+    return noise;
+  }
+
+  #processVoiceNoise(node) {
+    const activeSignals = this.voiceEngine.voiceSignals().filter(signal => signal.gate > 0);
+    const prefix = `${node.id}:`;
+    const activeKeys = new Set(activeSignals.map(signal => `${prefix}${signal.voiceId}`));
+    for (const key of this.voiceNodeState.keys()) {
+      if (key.startsWith(prefix) && !activeKeys.has(key)) this.voiceNodeState.delete(key);
+    }
+    if (activeSignals.length === 0) return 0;
+
+    const level = Math.max(0, Math.min(1, finite(node.parameters?.level, 0.25)));
+    let sum = 0;
+    for (const signal of activeSignals) {
+      sum += this.#voiceNoise(node, signal).nextSample() * level * finite(signal.velocity, 1);
+    }
+    return sanitizeSample(sum / Math.sqrt(activeSignals.length));
+  }
+
   #processNode(node, values) {
     const incoming = this.#incoming(node.id, values);
     const input = incoming.reduce((sum, value) => sum + finite(value), 0);
@@ -190,6 +254,12 @@ export class WorkletRuntime {
         const oscillator = this.nodeState.get(node.id);
         if (!(oscillator instanceof Oscillator)) return 0;
         return sanitizeSample(oscillator.nextSample() * finite(parameters.amplitude, 0.25));
+      }
+      case 'standard.noise': {
+        if (node.scope === 'voice') return this.#processVoiceNoise(node);
+        const noise = this.nodeState.get(node.id);
+        if (!(noise instanceof NoiseGenerator)) return 0;
+        return sanitizeSample(noise.nextSample() * Math.max(0, Math.min(1, finite(parameters.level, 0.25))));
       }
       case 'core.filter': {
         const filter = this.nodeState.get(node.id);
@@ -256,7 +326,7 @@ export class WorkletRuntime {
       case EngineMessageType.INITIALIZE: return { ok: true, diagnostics: this.diagnostics() };
       case EngineMessageType.GRAPH_SWAP: return { ok: this.applyGraph(payload.graph, payload.revision), diagnostics: this.diagnostics() };
       case EngineMessageType.NOTE: return { ok: this.handleNote(payload.event) };
-      case EngineMessageType.PARAMETER: return { ok: this.setParameter(payload.moduleId, payload.parameterId, payload.value) };
+      case EngineMessageType.PARAMETER: return { ok: this.setParameter(payload.moduleId, payload.parameterId, payload.value), diagnostics: this.diagnostics() };
       case EngineMessageType.PANIC:
         this.panic(payload.frame ?? this.currentFrame);
         return { ok: true };

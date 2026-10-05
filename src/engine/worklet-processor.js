@@ -15,6 +15,7 @@ function waveformFrom(value) {
 
 function finite(value, fallback = 0) { return Number.isFinite(value) ? value : fallback; }
 function cloneGraph(graph) { return typeof structuredClone === 'function' ? structuredClone(graph) : JSON.parse(JSON.stringify(graph)); }
+function midiNoteToHz(note) { return 440 * (2 ** ((finite(note, 69) - 69) / 12)); }
 
 export class WorkletRuntime {
   constructor({ sampleRate = 48000, maxVoices = 8 } = {}) {
@@ -22,6 +23,7 @@ export class WorkletRuntime {
     this.revision = 0;
     this.graph = null;
     this.nodeState = new Map();
+    this.voiceNodeState = new Map();
     this.voiceEngine = new VoiceEngine({ maxVoices });
     this.currentFrame = 0;
     this.parameterUpdates = 0;
@@ -42,7 +44,7 @@ export class WorkletRuntime {
     const nextState = new Map();
     for (const node of graph.nodes) {
       if (!node || typeof node.id !== 'string' || typeof node.type !== 'string') return false;
-      if (node.type === 'core.oscillator') {
+      if (node.type === 'core.oscillator' && node.scope !== 'voice') {
         nextState.set(node.id, new Oscillator({
           sampleRate: this.sampleRate,
           waveform: waveformFrom(node.parameters?.waveform),
@@ -62,6 +64,7 @@ export class WorkletRuntime {
     this.graph = cloneGraph(graph);
     this.revision = revision;
     this.nodeState = nextState;
+    this.voiceNodeState = new Map();
     this.graphSwaps += 1;
     this.panicLatched = false;
     return true;
@@ -80,14 +83,23 @@ export class WorkletRuntime {
     node.parameters ??= {};
     node.parameters[parameterId] = value;
 
+    const updateOscillator = oscillator => {
+      if (!(oscillator instanceof Oscillator)) return;
+      if (parameterId === 'frequency') oscillator.setFrequency(value);
+      if (parameterId === 'pulseWidth') oscillator.pulseWidth = Math.max(0.01, Math.min(0.99, value));
+      if (parameterId === 'waveform') oscillator.waveform = waveformFrom(value);
+    };
+
     const state = this.nodeState.get(moduleId);
     if (state instanceof Oscillator) {
-      if (parameterId === 'frequency') state.setFrequency(value);
-      if (parameterId === 'pulseWidth') state.pulseWidth = Math.max(0.01, Math.min(0.99, value));
-      if (parameterId === 'waveform') state.waveform = waveformFrom(value);
+      updateOscillator(state);
     } else if (state instanceof StateVariableFilter) {
       if (parameterId === 'cutoff') state.setCutoff(value);
       if (parameterId === 'resonance') state.setResonance(value);
+    }
+
+    for (const [key, voiceState] of this.voiceNodeState) {
+      if (key.startsWith(`${moduleId}:`)) updateOscillator(voiceState);
     }
 
     this.parameterUpdates += 1;
@@ -105,6 +117,7 @@ export class WorkletRuntime {
   panic(frame = this.currentFrame) {
     this.voiceEngine.enqueue({ type: 'panic', frame });
     this.voiceEngine.processRange(frame, frame + 1);
+    this.voiceNodeState.clear();
     this.panicLatched = true;
   }
 
@@ -117,12 +130,63 @@ export class WorkletRuntime {
     return samples;
   }
 
+  #noteTranspose() {
+    const noteInput = this.graph?.nodes.find(node => node.type === 'core.note-input');
+    return finite(noteInput?.parameters?.transpose, 0);
+  }
+
+  #voiceOscillator(node, signal) {
+    const key = `${node.id}:${signal.voiceId}`;
+    let oscillator = this.voiceNodeState.get(key);
+    const parameters = node.parameters ?? {};
+    const pitch = signal.pitch
+      + this.#noteTranspose()
+      + finite(parameters.octave, 0) * 12
+      + finite(parameters.semitone, 0)
+      + finite(parameters.cents, 0) / 100;
+    const frequency = midiNoteToHz(pitch);
+
+    if (!(oscillator instanceof Oscillator)) {
+      oscillator = new Oscillator({
+        sampleRate: this.sampleRate,
+        waveform: waveformFrom(parameters.waveform),
+        frequency,
+        pulseWidth: finite(parameters.pulseWidth, 0.5)
+      });
+      this.voiceNodeState.set(key, oscillator);
+    } else {
+      oscillator.setFrequency(frequency);
+      oscillator.waveform = waveformFrom(parameters.waveform);
+      oscillator.pulseWidth = Math.max(0.01, Math.min(0.99, finite(parameters.pulseWidth, 0.5)));
+    }
+    return oscillator;
+  }
+
+  #processVoiceOscillator(node) {
+    const activeSignals = this.voiceEngine.voiceSignals().filter(signal => signal.gate > 0);
+    const prefix = `${node.id}:`;
+    const activeKeys = new Set(activeSignals.map(signal => `${prefix}${signal.voiceId}`));
+    for (const key of this.voiceNodeState.keys()) {
+      if (key.startsWith(prefix) && !activeKeys.has(key)) this.voiceNodeState.delete(key);
+    }
+    if (activeSignals.length === 0) return 0;
+
+    const amplitude = finite(node.parameters?.amplitude, 0.25);
+    let sum = 0;
+    for (const signal of activeSignals) {
+      const oscillator = this.#voiceOscillator(node, signal);
+      sum += oscillator.nextSample() * amplitude * finite(signal.velocity, 1);
+    }
+    return sanitizeSample(sum / Math.sqrt(activeSignals.length));
+  }
+
   #processNode(node, values) {
     const incoming = this.#incoming(node.id, values);
     const input = incoming.reduce((sum, value) => sum + finite(value), 0);
     const parameters = node.parameters ?? {};
     switch (node.type) {
       case 'core.oscillator': {
+        if (node.scope === 'voice') return this.#processVoiceOscillator(node);
         const oscillator = this.nodeState.get(node.id);
         if (!(oscillator instanceof Oscillator)) return 0;
         return sanitizeSample(oscillator.nextSample() * finite(parameters.amplitude, 0.25));
@@ -148,9 +212,10 @@ export class WorkletRuntime {
       return { left, right };
     }
 
-    this.voiceEngine.processRange(this.currentFrame, this.currentFrame + blockLength);
     let peak = 0;
     for (let i = 0; i < blockLength; i += 1) {
+      const frame = this.currentFrame + i;
+      this.voiceEngine.processRange(frame, frame + 1);
       const values = new Map();
       let master = 0;
       for (const node of this.graph.nodes) {
@@ -169,12 +234,13 @@ export class WorkletRuntime {
   }
 
   diagnostics() {
+    const activeVoices = this.voiceEngine.voiceSignals().filter(signal => signal.gate > 0).length;
     return {
       revision: this.revision,
       graphSwaps: this.graphSwaps,
       rejectedGraphSwaps: this.rejectedGraphSwaps,
       parameterUpdates: this.parameterUpdates,
-      activeVoices: this.voiceEngine.voices().length,
+      activeVoices,
       currentFrame: this.currentFrame,
       peak: this.lastPeak,
       panic: this.panicLatched,

@@ -59,7 +59,7 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 .module-card-actions { display: flex; gap: .35rem; justify-content: flex-end; padding: .45rem .55rem .55rem; border-top: 1px solid #202e3b; }
 .module-card-actions button { padding: .3rem .42rem; border: 1px solid #2e4051; border-radius: .25rem; background: #101922; color: #8ea6bb; font-size: .65rem; cursor: pointer; }
 
-.cable-layer { position: absolute; inset: 0; z-index: 3; width: 1200px; height: 800px; overflow: visible; pointer-events: none; }
+.cable-layer { position: absolute; inset: 0; z-index: 5; width: 1200px; height: 800px; overflow: visible; pointer-events: none; }
 .cable-layer path { fill: none; stroke: #67c9f2; stroke-width: 3; opacity: .8; pointer-events: stroke; cursor: pointer; }
 .cable-layer path:hover, .cable-layer path:focus { stroke-width: 6; opacity: 1; outline: none; }
 

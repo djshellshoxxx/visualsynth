@@ -95,6 +95,9 @@ export class AudioEngine {
     return {
       started: this.started,
       contextState: this.context?.state ?? 'uninitialized',
+      sampleRate: Number.isFinite(this.context?.sampleRate) ? this.context.sampleRate : null,
+      baseLatency: Number.isFinite(this.context?.baseLatency) ? this.context.baseLatency : null,
+      outputLatency: Number.isFinite(this.context?.outputLatency) ? this.context.outputLatency : null,
       revision: this.revision,
       telemetry: { ...this.telemetry },
       processor: this.remoteDiagnostics

@@ -26,7 +26,7 @@ test('reduced-motion preference disables decorative glow and motion', async ({ p
 
 test('diagnostics disclosure exposes expanded state without relying on color', async ({ page }) => {
   await page.goto('./');
-  const button = page.getByRole('button', { name: /diagnostics/i });
+  const button = page.getByRole('button', { name: 'Diagnostics', exact: true });
   await expect(button).toHaveAttribute('aria-expanded', 'false');
   await button.click();
   await expect(button).toHaveAttribute('aria-expanded', 'true');

@@ -90,19 +90,19 @@ export class DiagnosticsView {
     const refresh = document.createElement('button');
     refresh.type = 'button';
     refresh.textContent = 'Refresh';
-    refresh.setAttribute('aria-label', 'Refresh diagnostics');
+    refresh.setAttribute('aria-label', 'Refresh runtime information');
     refresh.addEventListener('click', () => this.refresh());
 
     const copy = document.createElement('button');
     copy.type = 'button';
     copy.textContent = 'Copy JSON';
-    copy.setAttribute('aria-label', 'Copy diagnostics');
+    copy.setAttribute('aria-label', 'Copy runtime JSON');
     copy.addEventListener('click', () => void this.copy());
 
     const download = document.createElement('button');
     download.type = 'button';
     download.textContent = 'Download JSON';
-    download.setAttribute('aria-label', 'Download diagnostics');
+    download.setAttribute('aria-label', 'Download runtime JSON');
     download.addEventListener('click', () => this.download());
     actions.append(refresh, copy, download);
     header.append(title, actions);

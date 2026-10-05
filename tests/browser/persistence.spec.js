@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('Save stores the canonical versioned patch document and Load restores it', async ({ page }) => {
   await page.goto('./');
-  await page.getByRole('button', { name: 'Save patch' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
 
   const saved = await page.evaluate(() => localStorage.getItem('visualsynth.patch.saved'));
   expect(saved).not.toBeNull();
@@ -12,7 +12,7 @@ test('Save stores the canonical versioned patch document and Load restores it', 
   await page.getByRole('button', { name: 'Add LFO' }).click();
   await expect(page.locator('.module-card[data-module-type="core.lfo"]')).toHaveCount(1);
 
-  await page.getByRole('button', { name: 'Load patch' }).click();
+  await page.getByRole('button', { name: 'Load', exact: true }).click();
   await expect(page.locator('.module-card[data-module-type="core.lfo"]')).toHaveCount(0);
   await expect(page.locator('#workspace-status')).toContainText(/loaded saved patch/i);
 });

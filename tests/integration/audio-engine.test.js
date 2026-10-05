@@ -16,6 +16,22 @@ function simpleGraph(revision = 1) {
   };
 }
 
+function noteDrivenGraph(revision = 1) {
+  return {
+    formatVersion: 1,
+    revision,
+    nodes: [
+      { index: 0, id: 'notes', type: 'core.note-input', scope: 'global', parameters: { maxVoices: 8, transpose: 0 }, ports: [] },
+      { index: 1, id: 'osc', type: 'core.oscillator', scope: 'voice', parameters: { waveform: 0, amplitude: 0.25 }, ports: [] },
+      { index: 2, id: 'master', type: 'core.master-output', scope: 'global', parameters: { gain: 0.8 }, ports: [] }
+    ],
+    connections: [
+      { id: 'pitch', from: { moduleId: 'notes', portId: 'pitchOut' }, to: { moduleId: 'osc', portId: 'pitchIn' } },
+      { id: 'audio', from: { moduleId: 'osc', portId: 'audioOut' }, to: { moduleId: 'master', portId: 'audioIn' } }
+    ]
+  };
+}
+
 describe('engine protocol', () => {
   test('creates and validates canonical messages', () => {
     const message = createEngineMessage(EngineMessageType.GRAPH_SWAP, { revision: 3, graph: simpleGraph(3) });
@@ -48,6 +64,23 @@ describe('WorkletRuntime', () => {
     expect(block.right).toHaveLength(128);
     expect([...block.left, ...block.right].every(Number.isFinite)).toBe(true);
     expect(block.left.some(sample => Math.abs(sample) > 0)).toBe(true);
+  });
+
+  test('gates voice-scoped oscillator output from note events', () => {
+    const runtime = new WorkletRuntime({ sampleRate: 48000 });
+    runtime.applyGraph(noteDrivenGraph(1), 1);
+
+    const idle = runtime.processBlock(64);
+    expect(idle.left.every(sample => sample === 0)).toBe(true);
+
+    runtime.handleNote({ type: 'note-on', note: 69, velocity: 1, frame: 64 });
+    const sounding = runtime.processBlock(128);
+    expect(sounding.left.some(sample => Math.abs(sample) > 0)).toBe(true);
+    expect(runtime.diagnostics().activeVoices).toBe(1);
+
+    runtime.handleNote({ type: 'note-off', note: 69, frame: 192 });
+    const released = runtime.processBlock(64);
+    expect(released.left.every(sample => sample === 0)).toBe(true);
   });
 
   test('parameter-only updates do not change graph revision', () => {

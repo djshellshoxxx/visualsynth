@@ -1,13 +1,14 @@
 import { AudioEngine } from './engine/audio-engine.js';
 import { compilePatchGraph } from './graph/compile.js';
 import { ComputerKeyboardInput } from './input/computer-keyboard.js';
+import { PatchStore } from './persistence/patch-store.js';
 import { KeyboardView } from './ui/keyboard-view.js';
 import { MasterView } from './ui/master-view.js';
 import { WorkspaceController } from './ui/workspace.js';
 import { VisualizationScheduler } from './visual/scheduler.js';
 import { DEFAULT_EXAMPLE_ID, EXAMPLE_PATCHES, INIT_EXAMPLE_ID, getExamplePatch } from './presets/example-patches.js';
 
-const SAVED_PATCH_KEY = 'visualsynth.savedPatch.v1';
+const SAVED_PATCH_ID = 'saved';
 
 function setGuide(example) {
   const guide = document.querySelector('#wiring-guide strong');
@@ -72,6 +73,8 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
     });
   }
 
+  const patchStore = new PatchStore();
+
   const loadPreset = (id, statusPrefix = 'Loaded preset') => {
     if (!workspace) return false;
     const example = getExamplePatch(id);
@@ -88,7 +91,7 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   saveButton?.addEventListener('click', () => {
     if (!workspace) return;
     try {
-      localStorage.setItem(SAVED_PATCH_KEY, JSON.stringify(workspace.patch));
+      patchStore.save(SAVED_PATCH_ID, workspace.patch);
       workspace.setStatus('Saved patch in this browser');
     } catch (error) {
       workspace.setStatus(`Could not save patch: ${error instanceof Error ? error.message : String(error)}`, 'error');
@@ -97,12 +100,11 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   loadButton?.addEventListener('click', () => {
     if (!workspace) return;
     try {
-      const saved = localStorage.getItem(SAVED_PATCH_KEY);
-      if (!saved) {
+      const patch = patchStore.load(SAVED_PATCH_ID);
+      if (!patch) {
         workspace.setStatus('No saved patch found in this browser', 'error');
         return;
       }
-      const patch = JSON.parse(saved);
       if (workspace.replacePatch(patch, `Loaded saved patch: ${patch.name ?? 'Untitled Patch'}`)) {
         if (exampleSelect) exampleSelect.value = '';
         const guide = document.querySelector('#wiring-guide strong');
@@ -169,13 +171,14 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   shell.dataset.appState = 'ready';
   shell.visualSynthEngine = engine;
   shell.visualSynthWorkspace = workspace;
+  shell.visualSynthPatchStore = patchStore;
   shell.visualSynthKeyboard = keyboard;
   shell.visualSynthKeyboardView = keyboardView;
   shell.visualSynthMasterView = masterView;
   shell.visualSynthVisualizationScheduler = visualizationScheduler;
   shell.visualSynthLoadExample = loadPreset;
   shell.visualSynthLoadPreset = loadPreset;
-  return { engine, workspace, keyboard, keyboardView, masterView, visualizationScheduler, loadExample: loadPreset, loadPreset };
+  return { engine, workspace, patchStore, keyboard, keyboardView, masterView, visualizationScheduler, loadExample: loadPreset, loadPreset };
 }
 
 if (document.readyState === 'loading') {

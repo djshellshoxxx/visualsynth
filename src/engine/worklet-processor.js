@@ -1,6 +1,7 @@
 import { Oscillator } from '../dsp/oscillator.js';
 import { NoiseGenerator } from '../dsp/noise.js';
 import { StateVariableFilter } from '../dsp/filters.js';
+import { DistortionEffect, DelayEffect, EchoEffect } from '../dsp/effects.js';
 import { applyVca } from '../dsp/vca.js';
 import { sanitizeSample } from '../dsp/safety.js';
 import { VoiceEngine } from './voice-engine.js';
@@ -8,19 +9,22 @@ import { EngineMessageType, validateEngineMessage } from './protocol.js';
 
 const WAVEFORMS = ['sine', 'triangle', 'saw', 'reverse-saw', 'square', 'pulse', 'sine'];
 const NOISE_TYPES = ['white', 'pink', 'brown'];
+const FILTER_MODES = ['lowpass', 'highpass', 'bandpass', 'notch'];
 
 function waveformFrom(value) {
   if (typeof value === 'string') return value;
   if (Number.isInteger(value)) return WAVEFORMS[value] ?? 'sine';
   return 'sine';
 }
-
 function noiseTypeFrom(value) {
   if (typeof value === 'string') return NOISE_TYPES.includes(value) ? value : 'white';
   if (Number.isInteger(value)) return NOISE_TYPES[value] ?? 'white';
   return 'white';
 }
-
+function filterModeFrom(value) {
+  if (typeof value === 'string') return FILTER_MODES.includes(value) ? value : 'lowpass';
+  return FILTER_MODES[Math.round(value)] ?? 'lowpass';
+}
 function finite(value, fallback = 0) { return Number.isFinite(value) ? value : fallback; }
 function cloneGraph(graph) { return typeof structuredClone === 'function' ? structuredClone(graph) : JSON.parse(JSON.stringify(graph)); }
 function midiNoteToHz(note) { return 440 * (2 ** ((finite(note, 69) - 69) / 12)); }
@@ -54,32 +58,24 @@ export class WorkletRuntime {
       this.rejectedGraphSwaps += 1;
       return false;
     }
-
     const nextState = new Map();
     for (const node of graph.nodes) {
       if (!node || typeof node.id !== 'string' || typeof node.type !== 'string') return false;
+      const p = node.parameters ?? {};
       if (node.type === 'core.oscillator' && node.scope !== 'voice') {
-        nextState.set(node.id, new Oscillator({
-          sampleRate: this.sampleRate,
-          waveform: waveformFrom(node.parameters?.waveform),
-          frequency: finite(node.parameters?.frequency, 220),
-          pulseWidth: finite(node.parameters?.pulseWidth, 0.5)
-        }));
+        nextState.set(node.id, new Oscillator({ sampleRate: this.sampleRate, waveform: waveformFrom(p.waveform), frequency: finite(p.frequency, 220), pulseWidth: finite(p.pulseWidth, 0.5) }));
       } else if (node.type === 'standard.noise' && node.scope !== 'voice') {
-        nextState.set(node.id, new NoiseGenerator({
-          seed: finite(node.parameters?.seed, 1),
-          type: noiseTypeFrom(node.parameters?.type)
-        }));
+        nextState.set(node.id, new NoiseGenerator({ seed: finite(p.seed, 1), type: noiseTypeFrom(p.type) }));
       } else if (node.type === 'core.filter') {
-        nextState.set(node.id, new StateVariableFilter({
-          sampleRate: this.sampleRate,
-          cutoff: finite(node.parameters?.cutoff, 12000),
-          resonance: finite(node.parameters?.resonance, 0.1),
-          mode: node.parameters?.mode ?? 'lowpass'
-        }));
+        nextState.set(node.id, new StateVariableFilter({ sampleRate: this.sampleRate, cutoff: finite(p.cutoff, 12000), resonance: finite(p.resonance, 0.1), mode: filterModeFrom(p.mode) }));
+      } else if (node.type === 'core.distortion') {
+        nextState.set(node.id, new DistortionEffect({ drive: finite(p.drive, 3), tone: finite(p.tone, 0.65), mix: finite(p.mix, 0.7) }));
+      } else if (node.type === 'core.delay') {
+        nextState.set(node.id, new DelayEffect({ sampleRate: this.sampleRate, time: finite(p.time, 0.25), feedback: finite(p.feedback, 0.3), damping: finite(p.damping, 0.25), mix: finite(p.mix, 0.35) }));
+      } else if (node.type === 'core.echo') {
+        nextState.set(node.id, new EchoEffect({ sampleRate: this.sampleRate, time: finite(p.time, 0.36), feedback: finite(p.feedback, 0.58), damping: finite(p.damping, 0.42), mix: finite(p.mix, 0.42) }));
       }
     }
-
     this.graph = cloneGraph(graph);
     this.revision = revision;
     this.nodeState = nextState;
@@ -125,6 +121,16 @@ export class WorkletRuntime {
     } else if (state instanceof StateVariableFilter) {
       if (parameterId === 'cutoff') state.setCutoff(value);
       if (parameterId === 'resonance') state.setResonance(value);
+      if (parameterId === 'mode') state.mode = filterModeFrom(value);
+    } else if (state instanceof DistortionEffect) {
+      if (parameterId === 'drive') state.setDrive(value);
+      if (parameterId === 'tone') state.setTone(value);
+      if (parameterId === 'mix') state.setMix(value);
+    } else if (state instanceof DelayEffect) {
+      if (parameterId === 'time') state.setTime(value);
+      if (parameterId === 'feedback') state.setFeedback(value);
+      if (parameterId === 'damping') state.setDamping(value);
+      if (parameterId === 'mix') state.setMix(value);
     }
 
     for (const [key, voiceState] of this.voiceNodeState) {
@@ -132,7 +138,6 @@ export class WorkletRuntime {
       updateOscillator(voiceState);
       updateNoise(voiceState);
     }
-
     this.parameterUpdates += 1;
     return true;
   }
@@ -155,9 +160,7 @@ export class WorkletRuntime {
   #incoming(nodeId, values) {
     if (!this.graph) return [];
     const samples = [];
-    for (const connection of this.graph.connections) {
-      if (connection.to?.moduleId === nodeId) samples.push(values.get(connection.from?.moduleId) ?? 0);
-    }
+    for (const connection of this.graph.connections) if (connection.to?.moduleId === nodeId) samples.push(values.get(connection.from?.moduleId) ?? 0);
     return samples;
   }
 
@@ -170,20 +173,10 @@ export class WorkletRuntime {
     const key = `${node.id}:${signal.voiceId}`;
     let oscillator = this.voiceNodeState.get(key);
     const parameters = node.parameters ?? {};
-    const pitch = signal.pitch
-      + this.#noteTranspose()
-      + finite(parameters.octave, 0) * 12
-      + finite(parameters.semitone, 0)
-      + finite(parameters.cents, 0) / 100;
+    const pitch = signal.pitch + this.#noteTranspose() + finite(parameters.octave, 0) * 12 + finite(parameters.semitone, 0) + finite(parameters.cents, 0) / 100;
     const frequency = midiNoteToHz(pitch);
-
     if (!(oscillator instanceof Oscillator)) {
-      oscillator = new Oscillator({
-        sampleRate: this.sampleRate,
-        waveform: waveformFrom(parameters.waveform),
-        frequency,
-        pulseWidth: finite(parameters.pulseWidth, 0.5)
-      });
+      oscillator = new Oscillator({ sampleRate: this.sampleRate, waveform: waveformFrom(parameters.waveform), frequency, pulseWidth: finite(parameters.pulseWidth, 0.5) });
       this.voiceNodeState.set(key, oscillator);
     } else {
       oscillator.setFrequency(frequency);
@@ -197,17 +190,11 @@ export class WorkletRuntime {
     const activeSignals = this.voiceEngine.voiceSignals().filter(signal => signal.gate > 0);
     const prefix = `${node.id}:`;
     const activeKeys = new Set(activeSignals.map(signal => `${prefix}${signal.voiceId}`));
-    for (const key of this.voiceNodeState.keys()) {
-      if (key.startsWith(prefix) && !activeKeys.has(key)) this.voiceNodeState.delete(key);
-    }
+    for (const key of this.voiceNodeState.keys()) if (key.startsWith(prefix) && !activeKeys.has(key)) this.voiceNodeState.delete(key);
     if (activeSignals.length === 0) return 0;
-
     const amplitude = finite(node.parameters?.amplitude, 0.25);
     let sum = 0;
-    for (const signal of activeSignals) {
-      const oscillator = this.#voiceOscillator(node, signal);
-      sum += oscillator.nextSample() * amplitude * finite(signal.velocity, 1);
-    }
+    for (const signal of activeSignals) sum += this.#voiceOscillator(node, signal).nextSample() * amplitude * finite(signal.velocity, 1);
     return sanitizeSample(sum / Math.sqrt(activeSignals.length));
   }
 
@@ -216,10 +203,7 @@ export class WorkletRuntime {
     let noise = this.voiceNodeState.get(key);
     const parameters = node.parameters ?? {};
     if (!(noise instanceof NoiseGenerator)) {
-      noise = new NoiseGenerator({
-        seed: voiceSeed(parameters.seed, signal.voiceId),
-        type: noiseTypeFrom(parameters.type)
-      });
+      noise = new NoiseGenerator({ seed: voiceSeed(parameters.seed, signal.voiceId), type: noiseTypeFrom(parameters.type) });
       this.voiceNodeState.set(key, noise);
     } else {
       noise.type = noiseTypeFrom(parameters.type);
@@ -231,16 +215,11 @@ export class WorkletRuntime {
     const activeSignals = this.voiceEngine.voiceSignals().filter(signal => signal.gate > 0);
     const prefix = `${node.id}:`;
     const activeKeys = new Set(activeSignals.map(signal => `${prefix}${signal.voiceId}`));
-    for (const key of this.voiceNodeState.keys()) {
-      if (key.startsWith(prefix) && !activeKeys.has(key)) this.voiceNodeState.delete(key);
-    }
+    for (const key of this.voiceNodeState.keys()) if (key.startsWith(prefix) && !activeKeys.has(key)) this.voiceNodeState.delete(key);
     if (activeSignals.length === 0) return 0;
-
     const level = Math.max(0, Math.min(1, finite(node.parameters?.level, 0.25)));
     let sum = 0;
-    for (const signal of activeSignals) {
-      sum += this.#voiceNoise(node, signal).nextSample() * level * finite(signal.velocity, 1);
-    }
+    for (const signal of activeSignals) sum += this.#voiceNoise(node, signal).nextSample() * level * finite(signal.velocity, 1);
     return sanitizeSample(sum / Math.sqrt(activeSignals.length));
   }
 
@@ -263,7 +242,21 @@ export class WorkletRuntime {
       }
       case 'core.filter': {
         const filter = this.nodeState.get(node.id);
-        return filter instanceof StateVariableFilter ? filter.processSample(input) : 0;
+        const drive = Math.max(0, finite(parameters.drive, 0));
+        const driven = drive > 0 ? Math.tanh(input * (1 + drive)) : input;
+        return filter instanceof StateVariableFilter ? filter.processSample(driven) : 0;
+      }
+      case 'core.distortion': {
+        const effect = this.nodeState.get(node.id);
+        return effect instanceof DistortionEffect ? effect.processSample(input) : sanitizeSample(input);
+      }
+      case 'core.delay': {
+        const effect = this.nodeState.get(node.id);
+        return effect instanceof DelayEffect ? effect.processSample(input) : sanitizeSample(input);
+      }
+      case 'core.echo': {
+        const effect = this.nodeState.get(node.id);
+        return effect instanceof EchoEffect ? effect.processSample(input) : sanitizeSample(input);
       }
       case 'core.vca': return applyVca(input, finite(parameters.gain, 1));
       case 'core.mixer': return sanitizeSample(input * finite(parameters.gain, 0.5));
@@ -281,7 +274,6 @@ export class WorkletRuntime {
       this.lastPeak = 0;
       return { left, right };
     }
-
     let peak = 0;
     for (let i = 0; i < blockLength; i += 1) {
       const frame = this.currentFrame + i;
@@ -305,17 +297,7 @@ export class WorkletRuntime {
 
   diagnostics() {
     const activeVoices = this.voiceEngine.voiceSignals().filter(signal => signal.gate > 0).length;
-    return {
-      revision: this.revision,
-      graphSwaps: this.graphSwaps,
-      rejectedGraphSwaps: this.rejectedGraphSwaps,
-      parameterUpdates: this.parameterUpdates,
-      activeVoices,
-      currentFrame: this.currentFrame,
-      peak: this.lastPeak,
-      panic: this.panicLatched,
-      masterGain: this.masterGain
-    };
+    return { revision: this.revision, graphSwaps: this.graphSwaps, rejectedGraphSwaps: this.rejectedGraphSwaps, parameterUpdates: this.parameterUpdates, activeVoices, currentFrame: this.currentFrame, peak: this.lastPeak, panic: this.panicLatched, masterGain: this.masterGain };
   }
 
   handleMessage(message) {
@@ -345,12 +327,9 @@ if (typeof ProcessorBase === 'function' && typeof globalThis.registerProcessor =
       this.telemetryCounter = 0;
       this.port.onmessage = event => {
         const result = this.runtime.handleMessage(event.data);
-        if (!result.ok || event.data?.type === EngineMessageType.DIAGNOSTICS) {
-          this.port.postMessage({ type: EngineMessageType.DIAGNOSTICS, payload: result });
-        }
+        if (!result.ok || event.data?.type === EngineMessageType.DIAGNOSTICS) this.port.postMessage({ type: EngineMessageType.DIAGNOSTICS, payload: result });
       };
     }
-
     process(_inputs, outputs) {
       const output = outputs[0];
       if (!output?.length) return true;

@@ -2,8 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('renders oscillator parameters with a predicted waveform view', async ({ page }) => {
   await page.goto('./');
-  await page.getByRole('button', { name: 'Add Oscillator' }).click();
-  const module = page.locator('.module-card[data-module-type="core.oscillator"]');
+  const module = page.locator('.module-card[data-module-type="core.oscillator"]').first();
   await expect(module.locator('[data-parameter-id="waveform"]')).toBeVisible();
   await expect(module.locator('[data-parameter-id="amplitude"]')).toBeVisible();
   await expect(module.locator('canvas[data-module-visual="oscillator"]')).toBeVisible();
@@ -13,22 +12,21 @@ test('renders oscillator parameters with a predicted waveform view', async ({ pa
   await module.locator('[data-parameter-id="amplitude"] input').dispatchEvent('change');
   const value = await page.evaluate(() => {
     const workspace = document.querySelector('.app-shell').visualSynthWorkspace;
-    const id = Object.keys(workspace.patch.modules)[0];
-    return workspace.patch.modules[id].parameters.amplitude;
+    return workspace.patch.modules.osc.parameters.amplitude;
   });
   expect(value).toBe(0.5);
 });
 
 test('renders parameter controls for filter ADSR LFO VCA and master', async ({ page }) => {
   await page.goto('./');
-  for (const name of ['Multimode Filter', 'ADSR', 'LFO', 'VCA', 'Master Output']) {
+  for (const name of ['Multimode Filter', 'ADSR', 'LFO', 'VCA']) {
     await page.getByRole('button', { name: `Add ${name}` }).click();
   }
-  await expect(page.locator('.module-card[data-module-type="core.filter"] [data-parameter-id="cutoff"]')).toBeVisible();
-  await expect(page.locator('.module-card[data-module-type="core.adsr"] [data-parameter-id="attack"]')).toBeVisible();
-  await expect(page.locator('.module-card[data-module-type="core.lfo"] [data-parameter-id="rate"]')).toBeVisible();
-  await expect(page.locator('.module-card[data-module-type="core.vca"] [data-parameter-id="gain"]')).toBeVisible();
-  await expect(page.locator('.module-card[data-module-type="core.master-output"] [data-parameter-id="gain"]')).toBeVisible();
+  await expect(page.locator('.module-card[data-module-type="core.filter"] [data-parameter-id="cutoff"]').last()).toBeVisible();
+  await expect(page.locator('.module-card[data-module-type="core.adsr"] [data-parameter-id="attack"]').last()).toBeVisible();
+  await expect(page.locator('.module-card[data-module-type="core.lfo"] [data-parameter-id="rate"]').last()).toBeVisible();
+  await expect(page.locator('.module-card[data-module-type="core.vca"] [data-parameter-id="gain"]').last()).toBeVisible();
+  await expect(page.locator('.module-card[data-module-type="core.master-output"] [data-parameter-id="gain"]').first()).toBeVisible();
 });
 
 test('shows filter envelope and LFO visuals with explicit provenance labels', async ({ page }) => {
@@ -36,7 +34,7 @@ test('shows filter envelope and LFO visuals with explicit provenance labels', as
   await page.getByRole('button', { name: 'Add Multimode Filter' }).click();
   await page.getByRole('button', { name: 'Add ADSR' }).click();
   await page.getByRole('button', { name: 'Add LFO' }).click();
-  await expect(page.locator('[data-module-visual="filter"]')).toHaveAttribute('data-visual-source', 'predicted');
-  await expect(page.locator('[data-module-visual="adsr"]')).toHaveAttribute('data-visual-source', 'predicted');
-  await expect(page.locator('[data-module-visual="lfo"]')).toHaveAttribute('data-visual-source', 'predicted');
+  await expect(page.locator('[data-module-visual="filter"]').last()).toHaveAttribute('data-visual-source', 'predicted');
+  await expect(page.locator('[data-module-visual="adsr"]').last()).toHaveAttribute('data-visual-source', 'predicted');
+  await expect(page.locator('[data-module-visual="lfo"]').last()).toHaveAttribute('data-visual-source', 'predicted');
 });

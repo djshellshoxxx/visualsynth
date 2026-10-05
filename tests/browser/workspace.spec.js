@@ -2,52 +2,56 @@ import { test, expect } from '@playwright/test';
 
 test('adds, duplicates, moves and removes modules', async ({ page }) => {
   await page.goto('./');
+  const oscillators = page.locator('.module-card[data-module-type="core.oscillator"]');
+  await expect(oscillators).toHaveCount(1);
   await page.getByRole('button', { name: 'Add Oscillator' }).click();
-  const oscillator = page.locator('.module-card[data-module-type="core.oscillator"]').first();
+  await expect(oscillators).toHaveCount(2);
+  const oscillator = oscillators.last();
   await expect(oscillator).toBeVisible();
   await expect(oscillator).toContainText('Oscillator');
 
   await oscillator.getByRole('button', { name: 'Duplicate Oscillator' }).click();
-  await expect(page.locator('.module-card[data-module-type="core.oscillator"]')).toHaveCount(2);
+  await expect(oscillators).toHaveCount(3);
 
-  const first = page.locator('.module-card[data-module-type="core.oscillator"]').first();
-  const beforeX = Number(await first.getAttribute('data-x'));
-  await first.focus();
+  const added = oscillators.nth(1);
+  const beforeX = Number(await added.getAttribute('data-x'));
+  await added.focus();
   await page.keyboard.press('ArrowRight');
-  expect(Number(await first.getAttribute('data-x'))).toBeGreaterThan(beforeX);
+  expect(Number(await added.getAttribute('data-x'))).toBeGreaterThan(beforeX);
 
-  await page.locator('.module-card[data-module-type="core.oscillator"]').last().getByRole('button', { name: 'Remove Oscillator' }).click();
-  await expect(page.locator('.module-card[data-module-type="core.oscillator"]')).toHaveCount(1);
+  await oscillators.last().getByRole('button', { name: 'Remove Oscillator' }).click();
+  await expect(oscillators).toHaveCount(2);
 });
 
 test('connects compatible typed ports and rejects incompatible ports', async ({ page }) => {
   await page.goto('./');
+  const cables = page.locator('#cable-layer [data-connection-id]');
+  await expect(cables).toHaveCount(3);
   await page.getByRole('button', { name: 'Add Oscillator' }).click();
   await page.getByRole('button', { name: 'Add Multimode Filter' }).click();
 
-  const oscillator = page.locator('.module-card[data-module-type="core.oscillator"]').first();
-  const filter = page.locator('.module-card[data-module-type="core.filter"]').first();
+  const oscillator = page.locator('.module-card[data-module-type="core.oscillator"]').last();
+  const filter = page.locator('.module-card[data-module-type="core.filter"]').last();
 
   await oscillator.locator('[data-port-id="audioOut"]').click();
   await filter.locator('[data-port-id="audioIn"]').click();
-  const cable = page.locator('#cable-layer [data-connection-id]');
-  await expect(cable).toHaveCount(1);
+  await expect(cables).toHaveCount(4);
   await expect(page.locator('#workspace-status')).toContainText('Connected');
 
-  await cable.focus();
+  const newCable = cables.last();
+  await newCable.focus();
   await page.keyboard.press('Delete');
-  await expect(page.locator('#cable-layer [data-connection-id]')).toHaveCount(0);
+  await expect(cables).toHaveCount(3);
 
   await oscillator.locator('[data-port-id="audioOut"]').click();
   await filter.locator('[data-port-id="cutoffMod"]').click();
-  await expect(page.locator('#workspace-status')).toContainText(/incompatible|signal/i);
-  await expect(page.locator('#cable-layer [data-connection-id]')).toHaveCount(0);
+  await expect(page.locator('#workspace-status')).toContainText(/mismatch|signal/i);
+  await expect(cables).toHaveCount(3);
 });
 
 test('exposes touch-sized accessible connection targets', async ({ page }) => {
   await page.goto('./');
-  await page.getByRole('button', { name: 'Add Oscillator' }).click();
-  const port = page.locator('.module-card [data-port-id="audioOut"]');
+  const port = page.locator('.module-card[data-module-type="core.oscillator"] [data-port-id="audioOut"]').first();
   const box = await port.boundingBox();
   expect(box.width).toBeGreaterThanOrEqual(28);
   expect(box.height).toBeGreaterThanOrEqual(28);

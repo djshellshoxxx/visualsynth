@@ -5,7 +5,7 @@ import { KeyboardView } from './ui/keyboard-view.js';
 import { MasterView } from './ui/master-view.js';
 import { WorkspaceController } from './ui/workspace.js';
 import { VisualizationScheduler } from './visual/scheduler.js';
-import { DEFAULT_EXAMPLE_ID, EXAMPLE_PATCHES, getExamplePatch } from './presets/example-patches.js';
+import { DEFAULT_EXAMPLE_ID, EXAMPLE_PATCHES, INIT_EXAMPLE_ID, getExamplePatch } from './presets/example-patches.js';
 
 const SAVED_PATCH_KEY = 'visualsynth.savedPatch.v1';
 
@@ -39,6 +39,7 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   setGuide(starter);
 
   if (exampleSelect) {
+    exampleSelect.replaceChildren();
     for (const example of EXAMPLE_PATCHES) {
       const option = document.createElement('option');
       option.value = example.id;
@@ -71,10 +72,10 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
     });
   }
 
-  const loadExample = id => {
+  const loadPreset = (id, statusPrefix = 'Loaded preset') => {
     if (!workspace) return false;
     const example = getExamplePatch(id);
-    const loaded = workspace.replacePatch(example.patch, `Loaded example: ${example.title}`);
+    const loaded = workspace.replacePatch(example.patch, `${statusPrefix}: ${example.title}`);
     if (loaded) {
       if (exampleSelect) exampleSelect.value = example.id;
       setGuide(example);
@@ -82,8 +83,8 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
     return loaded;
   };
 
-  exampleSelect?.addEventListener('change', () => loadExample(exampleSelect.value));
-  newButton?.addEventListener('click', () => loadExample(DEFAULT_EXAMPLE_ID));
+  exampleSelect?.addEventListener('change', () => loadPreset(exampleSelect.value));
+  newButton?.addEventListener('click', () => loadPreset(INIT_EXAMPLE_ID, 'New patch'));
   saveButton?.addEventListener('click', () => {
     if (!workspace) return;
     try {
@@ -172,8 +173,9 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   shell.visualSynthKeyboardView = keyboardView;
   shell.visualSynthMasterView = masterView;
   shell.visualSynthVisualizationScheduler = visualizationScheduler;
-  shell.visualSynthLoadExample = loadExample;
-  return { engine, workspace, keyboard, keyboardView, masterView, visualizationScheduler, loadExample };
+  shell.visualSynthLoadExample = loadPreset;
+  shell.visualSynthLoadPreset = loadPreset;
+  return { engine, workspace, keyboard, keyboardView, masterView, visualizationScheduler, loadExample: loadPreset, loadPreset };
 }
 
 if (document.readyState === 'loading') {

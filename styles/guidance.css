@@ -1,0 +1,24 @@
+.wiring-guide {
+  display: flex;
+  align-items: baseline;
+  gap: .75rem;
+  padding: .55rem 1rem;
+  border-bottom: 1px solid #25303d;
+  background: #0b121a;
+  color: #9eb3c7;
+  font-size: .78rem;
+}
+.wiring-guide strong { color: #8edcff; white-space: nowrap; }
+.example-picker { display: flex; align-items: center; gap: .4rem; padding: .25rem .45rem; border: 1px solid #334052; border-radius: .35rem; background: #111923; color: #91a7bb; font-size: .75rem; }
+.example-picker select { max-width: 170px; border: 0; background: #0d151f; color: #d8e6f2; padding: .3rem; }
+.parameter-heading { display: flex; justify-content: space-between; gap: .4rem; }
+.parameter-control[title], .module-port[title], .module-card[title], .toolbar-actions [title], .keyboard-controls [title] { position: relative; }
+.module-port:hover, .module-port:focus-visible, .parameter-control:focus-within { border-color: #67c9f2; }
+.keyboard-controls { display: flex; align-items: center; gap: .45rem; }
+.keyboard-controls button { border: 1px solid #334052; border-radius: .3rem; background: #111923; color: #b9cbda; padding: .4rem .55rem; }
+.playable-keys .piano-key { width: 30px; height: 52px; margin: 0 1px; border: 1px solid #455363; background: #dbe3ea; cursor: pointer; }
+.playable-keys .piano-key[aria-pressed="true"] { transform: translateY(2px); filter: brightness(.75); }
+@media (max-width: 760px) {
+  .wiring-guide { align-items: flex-start; flex-direction: column; gap: .25rem; }
+  .example-picker { width: 100%; justify-content: space-between; }
+}

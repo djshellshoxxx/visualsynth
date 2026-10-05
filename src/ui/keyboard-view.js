@@ -62,7 +62,7 @@ export class KeyboardView {
       key.setAttribute('aria-pressed', 'false');
       key.addEventListener('pointerdown', event => {
         if (event.button !== 0 && event.pointerType !== 'touch') return;
-        key.setPointerCapture?.(event.pointerId);
+        try { key.setPointerCapture?.(event.pointerId); } catch { /* Synthetic or unsupported pointers may not be capturable. */ }
         this.activePointers.set(event.pointerId, note);
         key.setAttribute('aria-pressed', 'true');
         this.#emit('note-on', note);

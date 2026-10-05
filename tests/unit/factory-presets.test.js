@@ -6,59 +6,41 @@ import { DEFAULT_EXAMPLE_ID, EXAMPLE_PATCHES, getExamplePatch } from '../../src/
 import { createStarterPatch } from '../../src/presets/starter-patch.js';
 
 const EXPECTED_PRESETS = [
-  'basic-saw',
-  'warm-analog',
-  'sub-bass',
-  'reese-bass',
-  'pluck',
-  'soft-pad',
-  'acid-bass',
-  'pulse-lead',
-  'bright-lead',
-  'init-patch'
+  'basic-saw', 'warm-analog', 'sub-bass', 'reese-bass', 'pluck', 'soft-pad', 'acid-bass', 'pulse-lead', 'bright-lead',
+  'deep-house-bass', 'detuned-saw', 'chip-lead', 'organ', 'drone', 'filtered-square', 'highpass-lead', 'bandpass-radio',
+  'distorted-bass', 'crunch-lead', 'slap-delay-lead', 'dub-echo', 'space-pad', 'industrial-pulse', 'init-patch'
 ];
 
 describe('factory presets', () => {
-  beforeEach(() => {
-    clearModuleRegistry();
-    registerCoreModuleTypes();
-  });
+  beforeEach(() => { clearModuleRegistry(); registerCoreModuleTypes(); });
 
   test('ships the complete quick-setup preset set', () => {
     expect(EXAMPLE_PATCHES.map(preset => preset.id)).toEqual(EXPECTED_PRESETS);
+    expect(EXAMPLE_PATCHES).toHaveLength(24);
     expect(DEFAULT_EXAMPLE_ID).toBe('basic-saw');
   });
 
   test.each(EXPECTED_PRESETS)('%s is a valid, immediately playable graph', id => {
     const { patch } = getExamplePatch(id);
     expect(validatePatchGraph(patch)).toEqual({ valid: true, errors: [] });
-
     const noteInputs = Object.values(patch.modules).filter(module => module.type === 'core.note-input');
     const oscillators = Object.values(patch.modules).filter(module => module.type === 'core.oscillator');
     const masters = Object.values(patch.modules).filter(module => module.type === 'core.master-output');
-    expect(noteInputs).toHaveLength(1);
-    expect(oscillators.length).toBeGreaterThanOrEqual(1);
-    expect(masters).toHaveLength(1);
+    expect(noteInputs).toHaveLength(1); expect(oscillators.length).toBeGreaterThanOrEqual(1); expect(masters).toHaveLength(1);
+    for (const oscillator of oscillators) expect(patch.connections).toContainEqual(expect.objectContaining({ from: { moduleId: noteInputs[0].id, portId: 'pitchOut' }, to: { moduleId: oscillator.id, portId: 'pitchIn' } }));
+  });
 
-    for (const oscillator of oscillators) {
-      expect(patch.connections).toContainEqual(expect.objectContaining({
-        from: { moduleId: noteInputs[0].id, portId: 'pitchOut' },
-        to: { moduleId: oscillator.id, portId: 'pitchIn' }
-      }));
+  test('includes real effect-chain presets', () => {
+    for (const id of ['distorted-bass', 'slap-delay-lead', 'dub-echo', 'space-pad']) {
+      const types = Object.values(getExamplePatch(id).patch.modules).map(module => module.type);
+      expect(types.some(type => ['core.distortion', 'core.delay', 'core.echo'].includes(type))).toBe(true);
     }
   });
 
   test('returns an isolated clone so editing a preset never mutates the factory copy', () => {
-    const first = getExamplePatch('warm-analog');
-    first.patch.name = 'Edited';
-    first.patch.modules.osc.parameters.cents = 99;
-
-    const second = getExamplePatch('warm-analog');
-    expect(second.patch.name).toBe('Warm Analog');
-    expect(second.patch.modules.osc.parameters.cents).not.toBe(99);
+    const first = getExamplePatch('warm-analog'); first.patch.name = 'Edited'; first.patch.modules.osc.parameters.cents = 99;
+    const second = getExamplePatch('warm-analog'); expect(second.patch.name).toBe('Warm Analog'); expect(second.patch.modules.osc.parameters.cents).not.toBe(99);
   });
 
-  test('legacy starter helper delegates to the canonical init patch', () => {
-    expect(createStarterPatch()).toEqual(getExamplePatch('init-patch').patch);
-  });
+  test('legacy starter helper delegates to the canonical init patch', () => { expect(createStarterPatch()).toEqual(getExamplePatch('init-patch').patch); });
 });

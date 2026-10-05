@@ -10,7 +10,7 @@
 <body>
   <div class="app-shell" data-app-state="booting">
     <header id="toolbar" class="toolbar" aria-label="VisualSynth toolbar">
-      <div class="brand">
+      <div class="brand" title="VisualSynth is a modular browser synthesizer. Build a signal path, see it, then play it.">
         <span class="brand-mark" aria-hidden="true">VS</span>
         <div>
           <strong>VisualSynth</strong>
@@ -18,26 +18,35 @@
         </div>
       </div>
       <div class="toolbar-actions" role="group" aria-label="Patch actions">
-        <button type="button" id="patch-new">New</button>
-        <button type="button" id="patch-save">Save</button>
-        <button type="button" id="patch-load">Load</button>
-        <button type="button" class="accent" id="audio-start">Start audio</button>
+        <label class="example-picker" title="Load a complete premade patch to study or modify.">
+          <span>Examples</span>
+          <select id="example-patch" aria-label="Example patch"></select>
+        </label>
+        <button type="button" id="patch-new" title="Reset to the simple playable starter patch.">New</button>
+        <button type="button" id="patch-save" title="Save the current patch in this browser.">Save</button>
+        <button type="button" id="patch-load" title="Load your last saved patch from this browser.">Load</button>
+        <button type="button" class="accent" id="audio-start" title="Start the browser audio engine. Browsers require this click before sound can play.">Start audio</button>
       </div>
     </header>
+
+    <section id="wiring-guide" class="wiring-guide" aria-live="polite">
+      <strong>Starter patch</strong>
+      <span id="example-description">Note Input → Oscillator → Voice Sum → Master Output. Click Start audio, then play A W S E D F T G Y H U J K.</span>
+    </section>
 
     <main class="main-grid">
       <aside id="module-library" class="panel module-library" aria-label="Module library">
         <div class="panel-heading">
           <span>Modules</span>
-          <span class="status-dot" title="MVP workspace"></span>
+          <span class="status-dot" title="The modular workspace is active."></span>
         </div>
-        <p>Add modules, move them with drag or arrow keys, then connect compatible ports.</p>
+        <p title="Add modules, then connect an output port to an input port with the same signal type. Voice audio must pass through Voice Sum before global modules.">Add modules, then connect matching ports. Hover or focus any control for wiring help.</p>
         <div class="module-placeholder-list" aria-hidden="true">
           <span>OSC</span><span>MIX</span><span>FILTER</span><span>ADSR</span><span>LFO</span><span>VCA</span>
         </div>
       </aside>
 
-      <section id="workspace" class="workspace" aria-label="Patch workspace" tabindex="0">
+      <section id="workspace" class="workspace" aria-label="Patch workspace" tabindex="0" title="Patch workspace. Drag module headers to move them. Click an output port, then a matching input port, to create a cable.">
         <div class="workspace-grid" aria-hidden="true"></div>
         <div class="empty-state">
           <p class="eyebrow">Signal workspace</p>
@@ -46,9 +55,9 @@
         </div>
       </section>
 
-      <aside id="master-monitor" class="panel master-monitor" aria-label="Master monitor">
+      <aside id="master-monitor" class="panel master-monitor" aria-label="Master monitor" title="Master output monitor. Shows whether audio is running, current active voices, and output peak level.">
         <div class="panel-heading">Master</div>
-        <div class="meter" aria-label="Master output level" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0" role="meter">
+        <div class="meter" aria-label="Master output level" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0" role="meter" title="Current output peak level. Keep this below clipping.">
           <span></span>
         </div>
         <dl>
@@ -59,7 +68,7 @@
       </aside>
     </main>
 
-    <section id="keyboard" class="keyboard-panel" aria-label="Performance keyboard">
+    <section id="keyboard" class="keyboard-panel" aria-label="Performance keyboard" title="Computer keyboard performance input. A W S E D F T G Y H U J K play notes; Z/X shift octaves.">
       <div>
         <strong>Keyboard</strong>
         <span>Click Start audio, then play A W S E D F T G Y H U J K. Use Z/X to shift octaves. MIDI support is optional.</span>

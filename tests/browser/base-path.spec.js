@@ -11,7 +11,7 @@ test('loads application assets correctly from the GitHub Pages subpath', async (
   await expect(page.locator('.app-shell')).toHaveAttribute('data-app-state', 'ready');
 
   const urls = await page.evaluate(() => ({
-    script: document.querySelector('script[type="module"]')?.src ?? '',
+    script: document.querySelector('script[type="module"][src$="/src/app.js"]')?.src ?? '',
     styles: [...document.querySelectorAll('link[rel="stylesheet"]')].map(link => link.href)
   }));
 

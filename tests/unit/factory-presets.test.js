@@ -3,6 +3,7 @@ import { clearModuleRegistry } from '../../src/graph/registry.js';
 import { validatePatchGraph } from '../../src/graph/validate.js';
 import { registerCoreModuleTypes } from '../../src/modules/core-definitions.js';
 import { DEFAULT_EXAMPLE_ID, EXAMPLE_PATCHES, getExamplePatch } from '../../src/presets/example-patches.js';
+import { createStarterPatch } from '../../src/presets/starter-patch.js';
 
 const EXPECTED_PRESETS = [
   'basic-saw',
@@ -55,5 +56,9 @@ describe('factory presets', () => {
     const second = getExamplePatch('warm-analog');
     expect(second.patch.name).toBe('Warm Analog');
     expect(second.patch.modules.osc.parameters.cents).not.toBe(99);
+  });
+
+  test('legacy starter helper delegates to the canonical init patch', () => {
+    expect(createStarterPatch()).toEqual(getExamplePatch('init-patch').patch);
   });
 });

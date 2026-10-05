@@ -31,6 +31,8 @@ export class AudioEngine {
   async start() {
     if (!this.context) this.context = this.contextFactory();
 
+    if (this.context.state !== 'running' && typeof this.context.resume === 'function') await this.context.resume();
+
     if (!this.node) {
       if (!this.context.audioWorklet?.addModule) throw new Error('AudioWorklet module loading is unavailable');
       await this.context.audioWorklet.addModule(this.workletUrl);
@@ -40,7 +42,6 @@ export class AudioEngine {
       this.#post(EngineMessageType.INITIALIZE, { sampleRate: this.context.sampleRate ?? null });
     }
 
-    if (this.context.state !== 'running' && typeof this.context.resume === 'function') await this.context.resume();
     this.started = true;
     return this;
   }

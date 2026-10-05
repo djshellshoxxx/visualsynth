@@ -6,6 +6,7 @@ import { createEnvelopeModuleBody } from '../modules/envelope-module.js';
 import { createLfoModuleBody } from '../modules/lfo-module.js';
 import { createVcaModuleBody } from '../modules/vca-module.js';
 import { createMasterModuleBody } from '../modules/master-module.js';
+import { moduleHelp, portHelp } from '../help/guidance.js';
 
 const BODY_FACTORIES = Object.freeze({
   'core.oscillator': createOscillatorModuleBody,
@@ -31,14 +32,19 @@ export function createModuleElement(instance, definition, handlers = {}) {
   card.tabIndex = 0;
   card.style.left = `${instance.position?.x ?? 0}px`;
   card.style.top = `${instance.position?.y ?? 0}px`;
+  const help = moduleHelp(instance.type);
   card.setAttribute('aria-label', `${definition.title} module`);
+  card.setAttribute('aria-description', help);
+  card.title = help;
 
   const header = document.createElement('header');
   header.className = 'module-card-header';
+  header.title = `${definition.title}: ${help}`;
   const title = document.createElement('strong');
   title.textContent = definition.title;
   const scope = document.createElement('span');
   scope.textContent = instance.scope;
+  scope.title = instance.scope === 'voice' ? 'VOICE scope: one copy runs for each active note.' : 'GLOBAL scope: one shared signal path for the whole patch.';
   header.append(title, scope);
   card.append(header);
 
@@ -52,7 +58,10 @@ export function createModuleElement(instance, definition, handlers = {}) {
     button.dataset.direction = port.direction;
     button.dataset.signalType = port.signalType;
     button.textContent = port.label ?? port.id;
+    const guidance = portHelp(port);
     button.setAttribute('aria-label', `${portLabel(port)} (${port.id})`);
+    button.setAttribute('aria-description', guidance);
+    button.title = guidance;
     button.addEventListener('click', event => {
       event.stopPropagation();
       handlers.onPort?.(instance.id, port.id, port, button);
@@ -69,11 +78,13 @@ export function createModuleElement(instance, definition, handlers = {}) {
   const duplicate = document.createElement('button');
   duplicate.type = 'button';
   duplicate.textContent = 'Duplicate';
+  duplicate.title = `Duplicate this ${definition.title} with the same parameter settings.`;
   duplicate.setAttribute('aria-label', `Duplicate ${definition.title}`);
   duplicate.addEventListener('click', event => { event.stopPropagation(); handlers.onDuplicate?.(instance.id); });
   const remove = document.createElement('button');
   remove.type = 'button';
   remove.textContent = 'Remove';
+  remove.title = `Remove this ${definition.title} and any cables connected to it.`;
   remove.setAttribute('aria-label', `Remove ${definition.title}`);
   remove.addEventListener('click', event => { event.stopPropagation(); handlers.onRemove?.(instance.id); });
   footer.append(duplicate, remove);

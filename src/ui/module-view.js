@@ -6,12 +6,16 @@ import { createEnvelopeModuleBody } from '../modules/envelope-module.js';
 import { createLfoModuleBody } from '../modules/lfo-module.js';
 import { createVcaModuleBody } from '../modules/vca-module.js';
 import { createMasterModuleBody } from '../modules/master-module.js';
+import { createDistortionModuleBody, createDelayModuleBody, createEchoModuleBody } from '../modules/effect-module.js';
 import { moduleHelp, portHelp } from '../help/guidance.js';
 
 const BODY_FACTORIES = Object.freeze({
   'core.oscillator': createOscillatorModuleBody,
   'core.mixer': createMixerModuleBody,
   'core.filter': createFilterModuleBody,
+  'core.distortion': createDistortionModuleBody,
+  'core.delay': createDelayModuleBody,
+  'core.echo': createEchoModuleBody,
   'core.adsr': createEnvelopeModuleBody,
   'core.lfo': createLfoModuleBody,
   'core.vca': createVcaModuleBody,

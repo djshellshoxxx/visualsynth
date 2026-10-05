@@ -3,6 +3,7 @@ name: Deploy VisualSynth Pages
 on:
   push:
     branches:
+      - main
       - codex/visualsynth-mvp
   workflow_dispatch:
 

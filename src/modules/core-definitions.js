@@ -28,7 +28,7 @@ export const CORE_MODULE_DEFINITIONS = Object.freeze([
   },
   {
     typeId: 'core.filter', title: 'Multimode Filter', defaultScope: VoiceScope.VOICE, allowedScopes: [VoiceScope.VOICE, VoiceScope.GLOBAL],
-    ports: [input('audioIn', SignalType.AUDIO), input('cutoffMod', SignalType.CONTROL, { optional: true }), output('audioOut', SignalType.AUDIO)],
+    ports: [input('audioIn', SignalType.AUDIO), input('cutoffMod', SignalType.CONTROL, { optional: true, multiple: true }), output('audioOut', SignalType.AUDIO)],
     parameters: [
       parameter('mode', 0, 3, 0, { curve: 'choice', choices: ['lowpass', 'highpass', 'bandpass', 'notch'], smoothingMs: 0, modulatable: false }),
       parameter('cutoff', 20, 20000, 12000, { curve: 'log', unit: 'Hz', smoothingMs: 12 }), parameter('resonance', 0, 1, 0.1, { smoothingMs: 12 }), parameter('drive', 0, 8, 0, { smoothingMs: 8 })

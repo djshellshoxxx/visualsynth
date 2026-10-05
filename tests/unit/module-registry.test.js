@@ -61,8 +61,17 @@ describe('module registry', () => {
       'core.adsr',
       'core.lfo',
       'core.vca',
+      'core.voice-sum',
       'core.master-output'
     ]);
+  });
+
+  test('voice sum exposes an explicit voice-audio boundary', () => {
+    registerCoreModuleTypes();
+    const boundary = getModuleType('core.voice-sum');
+    expect(boundary.defaultScope).toBe(VoiceScope.GLOBAL);
+    expect(boundary.ports.find(port => port.id === 'audioIn')).toMatchObject({ direction: 'input', signalType: SignalType.AUDIO, voiceBoundary: true });
+    expect(boundary.ports.find(port => port.id === 'audioOut')).toMatchObject({ direction: 'output', signalType: SignalType.AUDIO });
   });
 
   test('registry protects canonical definitions from caller mutation', () => {

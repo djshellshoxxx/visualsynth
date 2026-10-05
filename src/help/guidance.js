@@ -1,13 +1,13 @@
 const MODULE_HELP = Object.freeze({
-  'core.note-input': 'Turns keyboard or MIDI notes into pitch and gate information. Start here for playable patches.',
-  'core.oscillator': 'Creates the raw tone. Feed pitchIn from Note Input. Send audioOut to a Filter, VCA, Mixer, or Voice Sum.',
-  'core.mixer': 'Combines audio signals. Connect oscillator/filter/VCA audio outputs to its inputs, then send audioOut onward.',
-  'core.filter': 'Shapes tone by removing or emphasizing frequencies. Connect AUDIO into audioIn and send audioOut onward.',
-  'core.adsr': 'Creates a time-varying control envelope. Feed gateIn from Note Input and route controlOut to a modulation-capable destination.',
-  'core.lfo': 'Creates repeating control modulation. Route controlOut to a compatible CONTROL input such as filter cutoff modulation.',
-  'core.vca': 'Controls audio level using a CONTROL signal. Feed audio into audioIn and an envelope/control source into gainIn.',
-  'core.voice-sum': 'Explicitly combines per-voice AUDIO into one GLOBAL audio stream. Use this before Master Output when a voice-scoped audio chain ends.',
-  'core.master-output': 'Final destination. Feed GLOBAL AUDIO into audioIn. This is what reaches your speakers.'
+  'core.note-input': 'Note Input: Turns keyboard or MIDI notes into pitch and gate information. Start here for playable patches.',
+  'core.oscillator': 'Oscillator: Creates the raw tone. Feed pitchIn from Note Input. Send audioOut to a Filter, VCA, Mixer, or Voice Sum.',
+  'core.mixer': 'Mixer: Combines audio signals. Connect oscillator/filter/VCA audio outputs to its inputs, then send audioOut onward.',
+  'core.filter': 'Filter: Shapes tone by removing or emphasizing frequencies. Connect AUDIO into audioIn and send audioOut onward.',
+  'core.adsr': 'ADSR Envelope: Creates a time-varying control envelope. Feed gateIn from Note Input and route controlOut to a modulation-capable destination.',
+  'core.lfo': 'LFO: Creates repeating control modulation. Route controlOut to a compatible CONTROL input such as filter cutoff modulation.',
+  'core.vca': 'VCA: Controls audio level using a CONTROL signal. Feed audio into audioIn and an envelope/control source into gainIn.',
+  'core.voice-sum': 'Voice Sum: Explicitly combines per-voice AUDIO into one GLOBAL audio stream. Use this before Master Output when a voice-scoped audio chain ends.',
+  'core.master-output': 'Master Output: Final destination. Feed GLOBAL AUDIO into audioIn. This is what reaches your speakers.'
 });
 
 const PORT_HELP = Object.freeze({

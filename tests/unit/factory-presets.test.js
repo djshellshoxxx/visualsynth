@@ -6,16 +6,9 @@ import { DEFAULT_EXAMPLE_ID, EXAMPLE_PATCHES, getExamplePatch } from '../../src/
 import { createStarterPatch } from '../../src/presets/starter-patch.js';
 
 const EXPECTED_PRESETS = [
-  'basic-saw',
-  'warm-analog',
-  'sub-bass',
-  'reese-bass',
-  'pluck',
-  'soft-pad',
-  'acid-bass',
-  'pulse-lead',
-  'bright-lead',
-  'init-patch'
+  'basic-saw', 'warm-analog', 'sub-bass', 'reese-bass', 'pluck', 'soft-pad', 'acid-bass', 'pulse-lead', 'bright-lead',
+  'deep-house-bass', 'detuned-saw', 'chip-lead', 'organ', 'drone', 'filtered-square', 'highpass-lead', 'bandpass-radio',
+  'distorted-bass', 'crunch-lead', 'slap-delay-lead', 'dub-echo', 'space-pad', 'industrial-pulse', 'init-patch'
 ];
 
 describe('factory presets', () => {
@@ -32,14 +25,12 @@ describe('factory presets', () => {
   test.each(EXPECTED_PRESETS)('%s is a valid, immediately playable graph', id => {
     const { patch } = getExamplePatch(id);
     expect(validatePatchGraph(patch)).toEqual({ valid: true, errors: [] });
-
     const noteInputs = Object.values(patch.modules).filter(module => module.type === 'core.note-input');
     const oscillators = Object.values(patch.modules).filter(module => module.type === 'core.oscillator');
     const masters = Object.values(patch.modules).filter(module => module.type === 'core.master-output');
     expect(noteInputs).toHaveLength(1);
     expect(oscillators.length).toBeGreaterThanOrEqual(1);
     expect(masters).toHaveLength(1);
-
     for (const oscillator of oscillators) {
       expect(patch.connections).toContainEqual(expect.objectContaining({
         from: { moduleId: noteInputs[0].id, portId: 'pitchOut' },
@@ -48,11 +39,16 @@ describe('factory presets', () => {
     }
   });
 
+  test('effect presets use actual effect modules', () => {
+    expect(Object.values(getExamplePatch('distorted-bass').patch.modules).some(module => module.type === 'core.distortion')).toBe(true);
+    expect(Object.values(getExamplePatch('slap-delay-lead').patch.modules).some(module => module.type === 'core.delay')).toBe(true);
+    expect(Object.values(getExamplePatch('dub-echo').patch.modules).some(module => module.type === 'core.echo')).toBe(true);
+  });
+
   test('returns an isolated clone so editing a preset never mutates the factory copy', () => {
     const first = getExamplePatch('warm-analog');
     first.patch.name = 'Edited';
     first.patch.modules.osc.parameters.cents = 99;
-
     const second = getExamplePatch('warm-analog');
     expect(second.patch.name).toBe('Warm Analog');
     expect(second.patch.modules.osc.parameters.cents).not.toBe(99);

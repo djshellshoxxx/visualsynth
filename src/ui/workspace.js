@@ -123,6 +123,13 @@ export class WorkspaceController {
   moveModule(moduleId, position) {
     if (!this.patch.modules[moduleId]) return false;
     this.history.apply(Actions.moveModule(moduleId, { x: Math.max(0, position.x), y: Math.max(0, position.y) }, { historyGroup: `move:${moduleId}` }));
+    const card = this.stage.querySelector(`[data-module-id="${CSS.escape(moduleId)}"]`);
+    if (card) {
+      card.style.left = `${Math.max(0, position.x)}px`;
+      card.style.top = `${Math.max(0, position.y)}px`;
+      card.dataset.x = String(Math.max(0, position.x));
+      card.dataset.y = String(Math.max(0, position.y));
+    }
     this.#changed({ kind: 'layout' });
     return true;
   }
@@ -213,6 +220,15 @@ export class WorkspaceController {
   }
 
   #changed(meta = { kind: 'topology' }) {
+    if (meta.kind === 'parameter' || meta.kind === 'parameter-preview') {
+      this.onPatchChange(structuredClone(this.patch), meta);
+      return;
+    }
+    if (meta.kind === 'layout') {
+      requestAnimationFrame(() => this.cables.render(this.patch.connections));
+      this.onPatchChange(structuredClone(this.patch), meta);
+      return;
+    }
     this.render();
     this.onPatchChange(structuredClone(this.patch), meta);
   }

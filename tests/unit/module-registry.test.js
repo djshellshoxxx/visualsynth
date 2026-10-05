@@ -21,7 +21,6 @@ describe('module registry', () => {
       ports: [],
       parameters: []
     };
-
     registerModuleType(definition);
     expect(() => registerModuleType(definition)).toThrow(/already registered/i);
   });
@@ -32,38 +31,42 @@ describe('module registry', () => {
 
   test('core definitions expose canonical signal and parameter metadata', () => {
     registerCoreModuleTypes();
-
     const oscillator = getModuleType('core.oscillator');
     const output = oscillator.ports.find((port) => port.id === 'audioOut');
     const amplitude = oscillator.parameters.find((parameter) => parameter.id === 'amplitude');
-
     expect(output.signalType).toBe(SignalType.AUDIO);
     expect(output.direction).toBe('output');
     expect(oscillator.defaultScope).toBe(VoiceScope.VOICE);
     expect(oscillator.allowedScopes).toContain(VoiceScope.GLOBAL);
-    expect(amplitude).toMatchObject({
-      min: 0,
-      max: 1,
-      defaultValue: 0.25,
-      curve: 'linear',
-      smoothingMs: 8
-    });
+    expect(amplitude).toMatchObject({ min: 0, max: 1, defaultValue: 0.25, curve: 'linear', smoothingMs: 8 });
   });
 
-  test('registers the initial MVP module set in deterministic order', () => {
+  test('registers the core module set in deterministic order', () => {
     registerCoreModuleTypes();
-
     expect(listModuleTypes().map((definition) => definition.typeId)).toEqual([
       'core.note-input',
       'core.oscillator',
       'core.mixer',
       'core.filter',
+      'core.distortion',
+      'core.delay',
+      'core.echo',
       'core.adsr',
       'core.lfo',
       'core.vca',
       'core.voice-sum',
       'core.master-output'
     ]);
+  });
+
+  test('effect definitions expose patchable global audio I/O', () => {
+    registerCoreModuleTypes();
+    for (const typeId of ['core.distortion', 'core.delay', 'core.echo']) {
+      const effect = getModuleType(typeId);
+      expect(effect.defaultScope).toBe(VoiceScope.GLOBAL);
+      expect(effect.ports.find(port => port.id === 'audioIn')).toMatchObject({ direction: 'input', signalType: SignalType.AUDIO });
+      expect(effect.ports.find(port => port.id === 'audioOut')).toMatchObject({ direction: 'output', signalType: SignalType.AUDIO });
+    }
   });
 
   test('voice sum exposes an explicit voice-audio boundary', () => {

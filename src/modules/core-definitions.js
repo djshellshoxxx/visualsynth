@@ -100,6 +100,17 @@ export const CORE_MODULE_DEFINITIONS = Object.freeze([
     parameters: [parameter('gain', 0, 2, 1, { smoothingMs: 8 })]
   },
   {
+    typeId: 'core.voice-sum',
+    title: 'Voice Sum',
+    defaultScope: VoiceScope.GLOBAL,
+    allowedScopes: [VoiceScope.GLOBAL],
+    ports: [
+      input('audioIn', SignalType.AUDIO, { multiple: true, voiceBoundary: true }),
+      output('audioOut', SignalType.AUDIO)
+    ],
+    parameters: [parameter('gain', 0, 2, 1, { smoothingMs: 8 })]
+  },
+  {
     typeId: 'core.master-output',
     title: 'Master Output',
     defaultScope: VoiceScope.GLOBAL,

@@ -2,6 +2,7 @@ import { AudioEngine } from './engine/audio-engine.js';
 import { compilePatchGraph } from './graph/compile.js';
 import { ComputerKeyboardInput } from './input/computer-keyboard.js';
 import { PatchStore } from './persistence/patch-store.js';
+import { DiagnosticsView, collectDiagnostics } from './ui/diagnostics-view.js';
 import { KeyboardView } from './ui/keyboard-view.js';
 import { MasterView } from './ui/master-view.js';
 import { WorkspaceController } from './ui/workspace.js';
@@ -31,10 +32,17 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   const newButton = document.querySelector('#patch-new');
   const saveButton = document.querySelector('#patch-save');
   const loadButton = document.querySelector('#patch-load');
+  const diagnosticsToggle = document.querySelector('#diagnostics-toggle');
+  const diagnosticsRoot = document.querySelector('#diagnostics-panel');
   const meter = masterRoot?.querySelector('[role="meter"]');
   const meterFill = meter?.querySelector('span');
   const voicesLabel = document.querySelector('#master-voices');
   const peakLabel = document.querySelector('#master-peak');
+  const recentEvents = [];
+  const recordEvent = (type, detail = '') => {
+    recentEvents.push({ type, detail });
+    if (recentEvents.length > 20) recentEvents.splice(0, recentEvents.length - 20);
+  };
 
   const starter = getExamplePatch(DEFAULT_EXAMPLE_ID);
   setGuide(starter);
@@ -65,9 +73,12 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
             return;
           }
           if (change.kind === 'layout') return;
-          engine.applyCompiledGraph(compilePatchGraph(patch));
+          const revision = engine.applyCompiledGraph(compilePatchGraph(patch));
+          recordEvent('graphSwap', `revision ${revision}`);
         } catch (error) {
-          workspace?.setStatus(error instanceof Error ? error.message : String(error), 'error');
+          const message = error instanceof Error ? error.message : String(error);
+          recordEvent('graphError', message);
+          workspace?.setStatus(message, 'error');
         }
       }
     });
@@ -82,6 +93,7 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
     if (loaded) {
       if (exampleSelect) exampleSelect.value = example.id;
       setGuide(example);
+      recordEvent('preset', example.title);
     }
     return loaded;
   };
@@ -92,9 +104,12 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
     if (!workspace) return;
     try {
       patchStore.save(SAVED_PATCH_ID, workspace.patch);
+      recordEvent('save', 'browser patch saved');
       workspace.setStatus('Saved patch in this browser');
     } catch (error) {
-      workspace.setStatus(`Could not save patch: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      const message = error instanceof Error ? error.message : String(error);
+      recordEvent('saveError', message);
+      workspace.setStatus(`Could not save patch: ${message}`, 'error');
     }
   });
   loadButton?.addEventListener('click', () => {
@@ -106,6 +121,7 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
         return;
       }
       if (workspace.replacePatch(patch, `Loaded saved patch: ${patch.name ?? 'Untitled Patch'}`)) {
+        recordEvent('load', patch.name ?? 'saved patch');
         if (exampleSelect) exampleSelect.value = '';
         const guide = document.querySelector('#wiring-guide strong');
         const description = document.querySelector('#example-description');
@@ -113,7 +129,9 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
         if (description) description.textContent = 'Saved custom patch loaded. Hover or focus modules, ports, and controls for guidance.';
       }
     } catch (error) {
-      workspace.setStatus(`Could not load patch: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      const message = error instanceof Error ? error.message : String(error);
+      recordEvent('loadError', message);
+      workspace.setStatus(`Could not load patch: ${message}`, 'error');
     }
   });
 
@@ -139,6 +157,22 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
     if (peakLabel) peakLabel.textContent = peak.toFixed(2);
   }, 'high');
 
+  const diagnosticsView = diagnosticsRoot ? new DiagnosticsView({
+    root: diagnosticsRoot,
+    toggle: diagnosticsToggle,
+    getDocument: () => collectDiagnostics({
+      engine: engine.diagnostics(),
+      patch: workspace?.patch,
+      visualization: visualizationScheduler.diagnostics(),
+      recentEvents,
+      environment: {
+        userAgent: globalThis.navigator?.userAgent ?? '',
+        platform: globalThis.navigator?.platform ?? '',
+        language: globalThis.navigator?.language ?? ''
+      }
+    })
+  }) : null;
+
   const visualizationFrame = timestamp => {
     visualizationScheduler.frame(timestamp);
     globalThis.requestAnimationFrame?.(visualizationFrame);
@@ -155,15 +189,19 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
         await engine.start();
         if (workspace) engine.applyCompiledGraph(compilePatchGraph(workspace.patch));
         engine.setParameter('__master__', 'gain', masterView?.gain ?? 0.8);
+        engine.requestDiagnostics();
+        recordEvent('audio', 'started');
         status.textContent = 'running';
         startButton.textContent = 'Audio running';
         shell.dataset.audioState = 'running';
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        recordEvent('audioError', message);
         status.textContent = 'unavailable';
         startButton.textContent = 'Retry audio';
         startButton.disabled = false;
         shell.dataset.audioState = 'error';
-        shell.dataset.audioError = error instanceof Error ? error.message : String(error);
+        shell.dataset.audioError = message;
       }
     });
   }
@@ -176,9 +214,10 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   shell.visualSynthKeyboardView = keyboardView;
   shell.visualSynthMasterView = masterView;
   shell.visualSynthVisualizationScheduler = visualizationScheduler;
+  shell.visualSynthDiagnosticsView = diagnosticsView;
   shell.visualSynthLoadExample = loadPreset;
   shell.visualSynthLoadPreset = loadPreset;
-  return { engine, workspace, patchStore, keyboard, keyboardView, masterView, visualizationScheduler, loadExample: loadPreset, loadPreset };
+  return { engine, workspace, patchStore, keyboard, keyboardView, masterView, visualizationScheduler, diagnosticsView, loadExample: loadPreset, loadPreset };
 }
 
 if (document.readyState === 'loading') {

@@ -32,6 +32,22 @@ function noteDrivenGraph(revision = 1) {
   };
 }
 
+function noteDrivenNoiseGraph(revision = 1) {
+  return {
+    formatVersion: 1,
+    revision,
+    nodes: [
+      { index: 0, id: 'notes', type: 'core.note-input', scope: 'global', parameters: { maxVoices: 8, transpose: 0 }, ports: [] },
+      { index: 1, id: 'noise', type: 'standard.noise', scope: 'voice', parameters: { type: 0, level: 0.25, seed: 77 }, ports: [] },
+      { index: 2, id: 'master', type: 'core.master-output', scope: 'global', parameters: { gain: 0.8 }, ports: [] }
+    ],
+    connections: [
+      { id: 'gate', from: { moduleId: 'notes', portId: 'gateOut' }, to: { moduleId: 'noise', portId: 'gateIn' } },
+      { id: 'audio', from: { moduleId: 'noise', portId: 'audioOut' }, to: { moduleId: 'master', portId: 'audioIn' } }
+    ]
+  };
+}
+
 describe('engine protocol', () => {
   test('creates and validates canonical messages', () => {
     const message = createEngineMessage(EngineMessageType.GRAPH_SWAP, { revision: 3, graph: simpleGraph(3) });
@@ -81,6 +97,20 @@ describe('WorkletRuntime', () => {
     runtime.handleNote({ type: 'note-off', note: 69, frame: 192 });
     const released = runtime.processBlock(64);
     expect(released.left.every(sample => sample === 0)).toBe(true);
+  });
+
+  test('gates deterministic voice-scoped noise output from note events', () => {
+    const runtime = new WorkletRuntime({ sampleRate: 48000 });
+    runtime.applyGraph(noteDrivenNoiseGraph(1), 1);
+    expect(runtime.processBlock(32).left.every(sample => sample === 0)).toBe(true);
+
+    runtime.handleNote({ type: 'note-on', note: 60, velocity: 0.8, frame: 32 });
+    const sounding = runtime.processBlock(64);
+    expect(sounding.left.some(sample => Math.abs(sample) > 0)).toBe(true);
+    expect([...sounding.left].every(Number.isFinite)).toBe(true);
+
+    runtime.handleNote({ type: 'note-off', note: 60, frame: 96 });
+    expect(runtime.processBlock(32).left.every(sample => sample === 0)).toBe(true);
   });
 
   test('parameter-only updates do not change graph revision', () => {

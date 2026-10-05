@@ -55,7 +55,8 @@ export function definePort(definition) {
     signalType: definition.signalType,
     polyphonic: definition.polyphonic ?? false,
     multiple: definition.multiple ?? false,
-    optional: definition.optional ?? false
+    optional: definition.optional ?? false,
+    voiceBoundary: definition.voiceBoundary ?? false
   });
 }
 

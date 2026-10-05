@@ -5,6 +5,16 @@ import { KeyboardView } from './ui/keyboard-view.js';
 import { MasterView } from './ui/master-view.js';
 import { WorkspaceController } from './ui/workspace.js';
 import { VisualizationScheduler } from './visual/scheduler.js';
+import { DEFAULT_EXAMPLE_ID, EXAMPLE_PATCHES, getExamplePatch } from './presets/example-patches.js';
+
+const SAVED_PATCH_KEY = 'visualsynth.savedPatch.v1';
+
+function setGuide(example) {
+  const guide = document.querySelector('#wiring-guide strong');
+  const description = document.querySelector('#example-description');
+  if (guide) guide.textContent = example.title;
+  if (description) description.textContent = `${example.explanation} Click Start audio, then play the computer keyboard.`;
+}
 
 export async function bootApp({ engine = new AudioEngine() } = {}) {
   const shell = document.querySelector('.app-shell');
@@ -16,16 +26,35 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   const libraryRoot = document.querySelector('#module-library');
   const keyboardRoot = document.querySelector('#keyboard');
   const masterRoot = document.querySelector('#master-monitor');
+  const exampleSelect = document.querySelector('#example-patch');
+  const newButton = document.querySelector('#patch-new');
+  const saveButton = document.querySelector('#patch-save');
+  const loadButton = document.querySelector('#patch-load');
   const meter = masterRoot?.querySelector('[role="meter"]');
   const meterFill = meter?.querySelector('span');
   const voicesLabel = document.querySelector('#master-voices');
   const peakLabel = document.querySelector('#master-peak');
+
+  const starter = getExamplePatch(DEFAULT_EXAMPLE_ID);
+  setGuide(starter);
+
+  if (exampleSelect) {
+    for (const example of EXAMPLE_PATCHES) {
+      const option = document.createElement('option');
+      option.value = example.id;
+      option.textContent = example.title;
+      option.title = example.explanation;
+      exampleSelect.append(option);
+    }
+    exampleSelect.value = starter.id;
+  }
 
   let workspace = null;
   if (workspaceRoot && libraryRoot) {
     workspace = new WorkspaceController({
       root: workspaceRoot,
       library: libraryRoot,
+      initialPatch: starter.patch,
       onPatchChange: (patch, change = { kind: 'topology' }) => {
         if (!engine.diagnostics().started) return;
         try {
@@ -41,6 +70,49 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
       }
     });
   }
+
+  const loadExample = id => {
+    if (!workspace) return false;
+    const example = getExamplePatch(id);
+    const loaded = workspace.replacePatch(example.patch, `Loaded example: ${example.title}`);
+    if (loaded) {
+      if (exampleSelect) exampleSelect.value = example.id;
+      setGuide(example);
+    }
+    return loaded;
+  };
+
+  exampleSelect?.addEventListener('change', () => loadExample(exampleSelect.value));
+  newButton?.addEventListener('click', () => loadExample(DEFAULT_EXAMPLE_ID));
+  saveButton?.addEventListener('click', () => {
+    if (!workspace) return;
+    try {
+      localStorage.setItem(SAVED_PATCH_KEY, JSON.stringify(workspace.patch));
+      workspace.setStatus('Saved patch in this browser');
+    } catch (error) {
+      workspace.setStatus(`Could not save patch: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    }
+  });
+  loadButton?.addEventListener('click', () => {
+    if (!workspace) return;
+    try {
+      const saved = localStorage.getItem(SAVED_PATCH_KEY);
+      if (!saved) {
+        workspace.setStatus('No saved patch found in this browser', 'error');
+        return;
+      }
+      const patch = JSON.parse(saved);
+      if (workspace.replacePatch(patch, `Loaded saved patch: ${patch.name ?? 'Untitled Patch'}`)) {
+        if (exampleSelect) exampleSelect.value = '';
+        const guide = document.querySelector('#wiring-guide strong');
+        const description = document.querySelector('#example-description');
+        if (guide) guide.textContent = patch.name ?? 'Saved patch';
+        if (description) description.textContent = 'Saved custom patch loaded. Hover or focus modules, ports, and controls for guidance.';
+      }
+    } catch (error) {
+      workspace.setStatus(`Could not load patch: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    }
+  });
 
   const currentFrame = () => engine.diagnostics().processor?.diagnostics?.currentFrame ?? 0;
   const sendPerformanceEvent = event => {
@@ -100,7 +172,8 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   shell.visualSynthKeyboardView = keyboardView;
   shell.visualSynthMasterView = masterView;
   shell.visualSynthVisualizationScheduler = visualizationScheduler;
-  return { engine, workspace, keyboard, keyboardView, masterView, visualizationScheduler };
+  shell.visualSynthLoadExample = loadExample;
+  return { engine, workspace, keyboard, keyboardView, masterView, visualizationScheduler, loadExample };
 }
 
 if (document.readyState === 'loading') {

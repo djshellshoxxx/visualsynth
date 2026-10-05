@@ -34,14 +34,17 @@ export class KeyboardView {
     const down = document.createElement('button');
     down.type = 'button';
     down.textContent = '− Oct';
+    down.title = 'Shift the on-screen keyboard down one octave.';
     down.setAttribute('aria-label', 'Keyboard octave down');
     down.addEventListener('click', () => this.shiftOctave(-1));
     const label = document.createElement('span');
     label.className = 'keyboard-octave';
     label.textContent = `C${4 + this.octaveOffset}`;
+    label.title = 'Current starting octave for the on-screen keyboard.';
     const up = document.createElement('button');
     up.type = 'button';
     up.textContent = '+ Oct';
+    up.title = 'Shift the on-screen keyboard up one octave.';
     up.setAttribute('aria-label', 'Keyboard octave up');
     up.addEventListener('click', () => this.shiftOctave(1));
     controls.append(down, label, up);
@@ -54,6 +57,7 @@ export class KeyboardView {
       key.type = 'button';
       key.className = 'piano-key';
       key.dataset.note = String(note);
+      key.title = `Play MIDI note ${note}. Start audio first, then press or touch this key.`;
       key.setAttribute('aria-label', `Play MIDI note ${note}`);
       key.setAttribute('aria-pressed', 'false');
       key.addEventListener('pointerdown', event => {

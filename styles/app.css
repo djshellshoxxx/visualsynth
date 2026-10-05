@@ -109,3 +109,14 @@ dd { margin: 0; color: #afc0d1; }
   .empty-state { padding: 4rem 1.25rem; }
   .keyboard-panel { align-items: flex-start; flex-direction: column; overflow: hidden; }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  .status-dot { box-shadow: none; }
+  .module-port[data-pending="true"] { box-shadow: none; }
+}

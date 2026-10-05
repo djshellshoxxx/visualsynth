@@ -30,10 +30,12 @@ test('connects compatible typed ports and rejects incompatible ports', async ({ 
 
   await oscillator.locator('[data-port-id="audioOut"]').click();
   await filter.locator('[data-port-id="audioIn"]').click();
-  await expect(page.locator('#cable-layer [data-connection-id]')).toHaveCount(1);
+  const cable = page.locator('#cable-layer [data-connection-id]');
+  await expect(cable).toHaveCount(1);
   await expect(page.locator('#workspace-status')).toContainText('Connected');
 
-  await page.locator('#cable-layer [data-connection-id]').click({ position: { x: 2, y: 2 } });
+  await cable.focus();
+  await page.keyboard.press('Delete');
   await expect(page.locator('#cable-layer [data-connection-id]')).toHaveCount(0);
 
   await oscillator.locator('[data-port-id="audioOut"]').click();

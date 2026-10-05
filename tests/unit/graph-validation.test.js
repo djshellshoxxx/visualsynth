@@ -77,4 +77,19 @@ describe('validatePatchGraph', () => {
     );
     expect(validatePatchGraph(state).valid).toBe(false);
   });
+
+  test('accepts voice audio routed through the explicit voice sum boundary', () => {
+    const state = patch(
+      [
+        moduleOf('osc', 'core.oscillator', 'voice'),
+        moduleOf('sum', 'core.voice-sum', 'global'),
+        moduleOf('master', 'core.master-output', 'global')
+      ],
+      [
+        connection('c1', 'osc', 'audioOut', 'sum', 'audioIn'),
+        connection('c2', 'sum', 'audioOut', 'master', 'audioIn')
+      ]
+    );
+    expect(validatePatchGraph(state)).toEqual({ valid: true, errors: [] });
+  });
 });

@@ -1,3 +1,5 @@
+import { parameterHelp } from '../help/guidance.js';
+
 function formatValue(definition, value) {
   if (definition.curve === 'choice') return definition.choices?.[Math.round(value)] ?? String(value);
   if (definition.curve === 'integer') return String(Math.round(value));
@@ -10,6 +12,10 @@ export function createRangeControl({ definition, value, onInput = () => {}, onCo
   const wrapper = document.createElement('label');
   wrapper.className = 'parameter-control';
   wrapper.dataset.parameterId = definition.id;
+  const help = parameterHelp(definition);
+  wrapper.title = help;
+  wrapper.setAttribute('aria-description', help);
+
   const heading = document.createElement('span');
   heading.className = 'parameter-heading';
   const label = document.createElement('span');
@@ -39,6 +45,8 @@ export function createRangeControl({ definition, value, onInput = () => {}, onCo
     input.value = String(current);
   }
   input.setAttribute('aria-label', definition.label ?? definition.id);
+  input.setAttribute('aria-description', help);
+  input.title = help;
   input.addEventListener('input', () => {
     const next = Number(input.value);
     output.value = formatValue(definition, next);

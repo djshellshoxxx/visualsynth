@@ -1,6 +1,13 @@
 import { getModuleType } from './registry.js';
 import { validatePatchGraph } from './validate.js';
 
+const MODULATION_DESTINATIONS = Object.freeze({
+  'core.oscillator:fmIn': Object.freeze({ parameterId: 'pitch', scaling: 'semitones' }),
+  'core.oscillator:pmIn': Object.freeze({ parameterId: 'phase', scaling: 'cycles' }),
+  'core.filter:cutoffMod': Object.freeze({ parameterId: 'cutoff', scaling: 'octaves' }),
+  'core.vca:gainIn': Object.freeze({ parameterId: 'gain', scaling: 'linear' })
+});
+
 function topologicalOrder(patch) {
   const moduleIds = Object.keys(patch.modules ?? {}).sort();
   const indegree = new Map(moduleIds.map((id) => [id, 0]));
@@ -32,6 +39,30 @@ function topologicalOrder(patch) {
   return order;
 }
 
+function modulationDescriptor(patch, edge) {
+  const target = patch.modules?.[edge.to.moduleId];
+  if (!target) return null;
+  const mapping = MODULATION_DESTINATIONS[`${target.type}:${edge.to.portId}`];
+  if (!mapping) return null;
+  const targetDefinition = getModuleType(target.type);
+  const targetPort = targetDefinition.ports.find(port => port.id === edge.to.portId && port.direction === 'input');
+  if (targetPort?.signalType !== 'control') return null;
+
+  const settings = edge.modulation ?? {};
+  return {
+    id: edge.id,
+    source: { ...edge.from },
+    destination: { ...edge.to, parameterId: mapping.parameterId },
+    amount: Number.isFinite(settings.amount) ? settings.amount : 1,
+    polarity: settings.polarity === 'unipolar' ? 'unipolar' : 'bipolar',
+    scaling: settings.scaling ?? mapping.scaling,
+    curve: settings.curve ?? 'linear',
+    inputRange: Array.isArray(settings.inputRange) && settings.inputRange.length === 2
+      ? [settings.inputRange[0], settings.inputRange[1]]
+      : (settings.polarity === 'unipolar' ? [0, 1] : [-1, 1])
+  };
+}
+
 export function compilePatchGraph(patch) {
   const validation = validatePatchGraph(patch);
   if (!validation.valid) {
@@ -52,17 +83,26 @@ export function compilePatchGraph(patch) {
     };
   });
 
-  const connections = [...(patch.connections ?? [])]
-    .sort((a, b) => a.id.localeCompare(b.id))
-    .map((edge) => ({
+  const sortedEdges = [...(patch.connections ?? [])].sort((a, b) => a.id.localeCompare(b.id));
+  const modulations = [];
+  const connections = [];
+  for (const edge of sortedEdges) {
+    const modulation = modulationDescriptor(patch, edge);
+    if (modulation) {
+      modulations.push(modulation);
+      continue;
+    }
+    connections.push({
       id: edge.id,
       from: { ...edge.from },
       to: { ...edge.to }
-    }));
+    });
+  }
 
   return {
     formatVersion: 1,
     nodes,
-    connections
+    connections,
+    modulations
   };
 }

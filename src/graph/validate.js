@@ -84,7 +84,7 @@ export function validatePatchGraph(patch) {
       errors.push(`Connection ${edge.id} signal type mismatch: ${sourcePort.signalType} -> ${targetPort.signalType}`);
     }
 
-    if (source.scope === 'voice' && target.scope === 'global') {
+    if (source.scope === 'voice' && target.scope === 'global' && !targetPort.voiceBoundary) {
       errors.push(`Connection ${edge.id} crosses voice to global scope without an explicit voice boundary`);
     }
 

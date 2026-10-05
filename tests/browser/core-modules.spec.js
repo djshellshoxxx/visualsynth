@@ -7,7 +7,7 @@ test('renders oscillator parameters with a predicted waveform view', async ({ pa
   await expect(module.locator('[data-parameter-id="waveform"]')).toBeVisible();
   await expect(module.locator('[data-parameter-id="amplitude"]')).toBeVisible();
   await expect(module.locator('canvas[data-module-visual="oscillator"]')).toBeVisible();
-  await expect(module.locator('[data-visual-source="predicted"]')).toContainText(/predicted/i);
+  await expect(module.locator('figcaption[data-visual-source="predicted"]')).toContainText(/predicted/i);
 
   await module.locator('[data-parameter-id="amplitude"] input').fill('0.5');
   await module.locator('[data-parameter-id="amplitude"] input').dispatchEvent('change');

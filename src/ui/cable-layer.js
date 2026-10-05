@@ -36,7 +36,12 @@ export class CableLayer {
       path.setAttribute('d', `M ${start.x} ${start.y} C ${start.x + bend} ${start.y}, ${end.x - bend} ${end.y}, ${end.x} ${end.y}`);
       path.setAttribute('tabindex', '0');
       path.setAttribute('role', 'button');
+      const description = `Signal cable from ${connection.from.moduleId} ${connection.from.portId} to ${connection.to.moduleId} ${connection.to.portId}. Click or press Delete to disconnect.`;
       path.setAttribute('aria-label', `Disconnect ${connection.from.moduleId} ${connection.from.portId} from ${connection.to.moduleId} ${connection.to.portId}`);
+      path.setAttribute('aria-description', description);
+      const title = document.createElementNS(SVG_NS, 'title');
+      title.textContent = description;
+      path.append(title);
       path.addEventListener('click', event => {
         event.stopPropagation();
         this.onRemove(connection.id);

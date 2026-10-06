@@ -81,6 +81,7 @@ export function compilePatchGraph(patch) {
       type: instance.type,
       scope: instance.scope,
       parameters: { ...(instance.parameters ?? {}) },
+      state: structuredClone(instance.state ?? {}),
       ports: definition.ports.map((port) => ({ ...port }))
     };
   });
@@ -105,6 +106,8 @@ export function compilePatchGraph(patch) {
     formatVersion: 1,
     nodes,
     connections,
-    modulations
+    modulations,
+    automation: structuredClone(patch.automation ?? []),
+    transport: structuredClone(patch.transport ?? {})
   };
 }

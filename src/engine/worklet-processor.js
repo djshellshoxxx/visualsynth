@@ -369,6 +369,30 @@ export class WorkletRuntime {
     return state;
   }
 
+  #automationValue(points, frame) {
+    const sorted=(points??[]).filter(point=>Number.isInteger(point.frame)&&Number.isFinite(point.value)).sort((a,b)=>a.frame-b.frame);
+    if(!sorted.length)return null;
+    if(frame<=sorted[0].frame)return sorted[0].value;
+    const last=sorted.at(-1);if(frame>=last.frame)return last.value;
+    for(let i=1;i<sorted.length;i++){
+      const b=sorted[i],a=sorted[i-1];if(frame>b.frame)continue;
+      if(b.curve==='step')return a.value;
+      let t=(frame-a.frame)/Math.max(1,b.frame-a.frame);
+      if(b.curve==='exp')t*=t;
+      return a.value+(b.value-a.value)*t;
+    }
+    return last.value;
+  }
+
+  #applyAutomation(frame) {
+    for(const lane of this.graph?.automation??[]){
+      const node=this.graph.nodes.find(candidate=>candidate.id===lane.moduleId);
+      if(!node||typeof lane.parameterId!=='string')continue;
+      const value=this.#automationValue(lane.points,frame);
+      if(Number.isFinite(value)){node.parameters??={};node.parameters[lane.parameterId]=value;}
+    }
+  }
+
   #processSignalNode(node, outputs) {
     const p = node.parameters ?? {};
     const set = (portId, value) => outputs.set(this.#outputKey(node.id, portId), value);
@@ -694,6 +718,7 @@ export class WorkletRuntime {
     for (let i = 0; i < blockLength; i += 1) {
       const frame = this.currentFrame + i;
       this.processingFrame = frame;
+      this.#applyAutomation(frame);
       this.voiceEngine.processRange(frame, frame + 1);
       const values = new Map();
       for (const node of this.graph.nodes) {

@@ -109,6 +109,13 @@ export class WorkletRuntime {
         nextState.set(node.id, new CompressorEffect({ sampleRate: this.sampleRate, ...p }));
       }
     }
+    const noteInput = graph.nodes.find(node => node.type === 'core.note-input');
+    if (noteInput) {
+      const settings = noteInput.parameters ?? {};
+      this.voiceEngine.allocator.maxVoices = Math.max(1, Math.min(32, Math.round(finite(settings.maxVoices, 8))));
+      this.voiceEngine.allocator.mode = Math.round(finite(settings.voiceMode, 0)) === 1 ? 'mono' : 'poly';
+      this.voiceEngine.allocator.legato = Boolean(Math.round(finite(settings.legato, 0)));
+    }
     this.graph = cloneGraph(graph);
     this.revision = revision;
     this.nodeState = nextState;

@@ -15,7 +15,7 @@ export const CORE_MODULE_DEFINITIONS = Object.freeze([
   {
     typeId: 'core.note-input', title: 'Note Input', defaultScope: VoiceScope.GLOBAL, allowedScopes: [VoiceScope.GLOBAL],
     ports: [output('pitchOut', SignalType.PITCH, { polyphonic: true }), output('gateOut', SignalType.GATE, { polyphonic: true }), output('velocityOut', SignalType.CONTROL, { polyphonic: true }), output('eventOut', SignalType.EVENT)],
-    parameters: [parameter('maxVoices', 1, 32, 8, { curve: 'integer', smoothingMs: 0, modulatable: false }), parameter('transpose', -48, 48, 0, { unit: 'st', smoothingMs: 5 })]
+    parameters: [parameter('maxVoices', 1, 32, 8, { curve: 'integer', smoothingMs: 0, modulatable: false }), parameter('voiceMode',0,1,0,{curve:'choice',choices:['poly','mono'],smoothingMs:0,modulatable:false}), parameter('legato',0,1,0,{curve:'choice',choices:['off','on'],smoothingMs:0,modulatable:false}), parameter('transpose', -48, 48, 0, { unit: 'st', smoothingMs: 5 })]
   },
   {
     typeId: 'core.oscillator', title: 'Oscillator', defaultScope: VoiceScope.VOICE, allowedScopes: [VoiceScope.VOICE, VoiceScope.GLOBAL],

@@ -150,12 +150,20 @@ export class WorkletRuntime {
       if (parameterId === 'feedback') state.setFeedback(value);
       if (parameterId === 'damping') state.setDamping(value);
       if (parameterId === 'mix') state.setMix(value);
+    } else if (state instanceof AdditiveOscillator || state instanceof WavetableOscillator || state instanceof SupersawOscillator) {
+      if (parameterId === 'frequency') state.setFrequency(value);
+      else if (parameterId in state) state[parameterId] = value;
+    } else if (state instanceof ChorusEffect || state instanceof PhaserEffect || state instanceof ReverbEffect || state instanceof ParametricEqEffect || state instanceof CompressorEffect) {
+      if (parameterId in state) state[parameterId] = value;
     }
 
     for (const [key, voiceState] of this.voiceNodeState) {
       if (!key.startsWith(`${moduleId}:`)) continue;
       updateOscillator(voiceState);
       updateNoise(voiceState);
+      if (voiceState instanceof AdditiveOscillator || voiceState instanceof WavetableOscillator || voiceState instanceof SupersawOscillator) {
+        if (parameterId in voiceState) voiceState[parameterId] = value;
+      }
     }
     this.parameterUpdates += 1;
     return true;

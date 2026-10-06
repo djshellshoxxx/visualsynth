@@ -21,6 +21,9 @@ function sortedObject(object = {}) {
 }
 
 function serializeModule(module) {
+  if (module.type === 'system.unknown-placeholder' && module.state?.originalModule) {
+    return { ...structuredClone(module.state.originalModule), enabled: false };
+  }
   return {
     id: module.id,
     type: module.type,
@@ -151,12 +154,13 @@ function documentToPatch(document) {
     const to = structuredClone(raw.destination);
     if (!from?.moduleId || !to?.moduleId) throw new Error(`Connection ${raw.id} requires source and destination endpoints`);
     if (!modules[from.moduleId] || !modules[to.moduleId]) throw new Error(`Connection ${raw.id} references a missing module endpoint`);
+    const quarantined = modules[from.moduleId]?.type === 'system.unknown-placeholder' || modules[to.moduleId]?.type === 'system.unknown-placeholder';
     return {
       id: raw.id,
       from,
       to,
       ...(raw.signal ? { signal: raw.signal } : {}),
-      ...(raw.enabled === false ? { enabled: false } : {}),
+      ...((raw.enabled === false || quarantined) ? { enabled: false } : {}),
       ...(raw.ui ? { ui: structuredClone(raw.ui) } : {})
     };
   });

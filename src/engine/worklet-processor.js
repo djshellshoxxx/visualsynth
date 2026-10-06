@@ -1,4 +1,6 @@
 import { Oscillator } from '../dsp/oscillator.js';
+import { ADSREnvelope } from '../dsp/envelope.js';
+import { LFO } from '../dsp/lfo.js';
 import { NoiseGenerator } from '../dsp/noise.js';
 import { StateVariableFilter } from '../dsp/filters.js';
 import { DistortionEffect, DelayEffect, EchoEffect } from '../dsp/effects.js';
@@ -68,6 +70,10 @@ export class WorkletRuntime {
         nextState.set(node.id, new Oscillator({ sampleRate: this.sampleRate, waveform: waveformFrom(p.waveform), frequency: finite(p.frequency, 220), pulseWidth: finite(p.pulseWidth, 0.5) }));
       } else if (node.type === 'standard.noise' && node.scope !== 'voice') {
         nextState.set(node.id, new NoiseGenerator({ seed: finite(p.seed, 1), type: noiseTypeFrom(p.type) }));
+      } else if (node.type === 'core.adsr' && node.scope !== 'voice') {
+        nextState.set(node.id, { dsp: new ADSREnvelope({ sampleRate: this.sampleRate, attack: finite(p.attack, .01), decay: finite(p.decay, .15), sustain: finite(p.sustain, .7), release: finite(p.release, .25) }), lastGate: 0 });
+      } else if (node.type === 'core.lfo' && node.scope !== 'voice') {
+        nextState.set(node.id, new LFO({ sampleRate: this.sampleRate, frequency: finite(p.rate, 1), amount: finite(p.amount, 1) }));
       } else if (node.type === 'core.filter') {
         nextState.set(node.id, new StateVariableFilter({ sampleRate: this.sampleRate, cutoff: finite(p.cutoff, 12000), resonance: finite(p.resonance, 0.1), mode: filterModeFrom(p.mode) }));
       } else if (node.type === 'core.distortion') {
@@ -285,6 +291,247 @@ export class WorkletRuntime {
     return sanitizeSample(sum / Math.sqrt(activeSignals.length));
   }
 
+  #outputKey(moduleId, portId) { return `${moduleId}:${portId}`; }
+
+  #voiceBundle(entries = []) { return { kind: 'voice', lanes: new Map(entries) }; }
+
+  #isVoiceBundle(value) { return Boolean(value && value.kind === 'voice' && value.lanes instanceof Map); }
+
+  #scalar(value) {
+    if (this.#isVoiceBundle(value)) {
+      const samples = [...value.lanes.values()].map(sample => finite(sample, 0));
+      if (!samples.length) return 0;
+      return sanitizeSample(samples.reduce((sum, sample) => sum + sample, 0) / Math.sqrt(samples.length));
+    }
+    return finite(value, 0);
+  }
+
+  #inputValues(nodeId, portId, outputs) {
+    const result = [];
+    for (const connection of this.graph?.connections ?? []) {
+      if (connection.to?.moduleId !== nodeId || connection.to?.portId !== portId) continue;
+      result.push(outputs.get(this.#outputKey(connection.from.moduleId, connection.from.portId)) ?? 0);
+    }
+    return result;
+  }
+
+  #inputValue(nodeId, portId, outputs) {
+    const values = this.#inputValues(nodeId, portId, outputs);
+    if (!values.length) return 0;
+    if (values.some(value => this.#isVoiceBundle(value))) {
+      const ids = new Set();
+      for (const value of values) if (this.#isVoiceBundle(value)) for (const id of value.lanes.keys()) ids.add(id);
+      return this.#voiceBundle([...ids].map(id => [id, sanitizeSample(values.reduce((sum, value) => sum + (this.#isVoiceBundle(value) ? finite(value.lanes.get(id), 0) : finite(value, 0)), 0))]));
+    }
+    return sanitizeSample(values.reduce((sum, value) => sum + finite(value, 0), 0));
+  }
+
+  #modulationValues(nodeId, parameterId, outputs) {
+    const routes = (this.graph?.modulations ?? []).filter(route => route.destination?.moduleId === nodeId && route.destination?.parameterId === parameterId);
+    return routes.map(route => ({
+      route,
+      value: outputs.get(this.#outputKey(route.source.moduleId, route.source.portId)) ?? 0
+    }));
+  }
+
+  #lane(value, voiceId) { return this.#isVoiceBundle(value) ? finite(value.lanes.get(voiceId), 0) : finite(value, 0); }
+
+  #modulationSum(nodeId, parameterId, outputs, voiceId = null) {
+    let sum = 0;
+    for (const { route, value } of this.#modulationValues(nodeId, parameterId, outputs)) {
+      let source = voiceId == null ? this.#scalar(value) : this.#lane(value, voiceId);
+      if (route.polarity === 'unipolar') source = Math.max(0, source);
+      const amount = finite(route.amount, 1);
+      if (route.curve === 'exp') source = Math.sign(source) * source * source;
+      sum += source * amount;
+    }
+    return sanitizeSample(sum);
+  }
+
+  #voiceRuntime(node, voiceId, factory) {
+    const key = `${node.id}:${voiceId}`;
+    let state = this.voiceNodeState.get(key);
+    if (!state) {
+      state = factory();
+      this.voiceNodeState.set(key, state);
+    }
+    return state;
+  }
+
+  #processSignalNode(node, outputs) {
+    const p = node.parameters ?? {};
+    const set = (portId, value) => outputs.set(this.#outputKey(node.id, portId), value);
+    const voices = this.voiceEngine.voiceSignals();
+
+    switch (node.type) {
+      case 'core.note-input': {
+        const transpose = finite(p.transpose, 0);
+        set('pitchOut', this.#voiceBundle(voices.map(v => [v.voiceId, v.pitch + transpose])));
+        set('gateOut', this.#voiceBundle(voices.map(v => [v.voiceId, v.gate])));
+        set('velocityOut', this.#voiceBundle(voices.map(v => [v.voiceId, v.velocity])));
+        set('eventOut', 0);
+        return 0;
+      }
+      case 'core.oscillator': {
+        if (node.scope !== 'voice') {
+          const oscillator = this.nodeState.get(node.id);
+          if (!(oscillator instanceof Oscillator)) { set('audioOut', 0); return 0; }
+          const base = finite(p.frequency, oscillator.frequency || 220);
+          const fm = this.#modulationSum(node.id, 'pitch', outputs);
+          oscillator.setFrequency(base * 2 ** (fm / 12));
+          const sample = sanitizeSample(oscillator.nextSample() * finite(p.amplitude, .25));
+          set('audioOut', sample); return sample;
+        }
+        const pitchInput = this.#inputValue(node.id, 'pitchIn', outputs);
+        const lanes = [];
+        for (const voice of voices) {
+          const pitch = (this.#isVoiceBundle(pitchInput) ? this.#lane(pitchInput, voice.voiceId) : voice.pitch)
+            + finite(p.octave, 0) * 12 + finite(p.semitone, 0) + finite(p.cents, 0) / 100
+            + this.#modulationSum(node.id, 'pitch', outputs, voice.voiceId);
+          const oscillator = this.#voiceRuntime(node, voice.voiceId, () => new Oscillator({ sampleRate: this.sampleRate, waveform: waveformFrom(p.waveform), frequency: midiNoteToHz(pitch), pulseWidth: finite(p.pulseWidth, .5) }));
+          oscillator.setFrequency(midiNoteToHz(pitch)); oscillator.waveform = waveformFrom(p.waveform); oscillator.pulseWidth = Math.max(.01, Math.min(.99, finite(p.pulseWidth, .5)));
+          lanes.push([voice.voiceId, sanitizeSample(oscillator.nextSample() * finite(p.amplitude, .25) * finite(voice.velocity, 1))]);
+        }
+        const value = this.#voiceBundle(lanes); set('audioOut', value); return 0;
+      }
+      case 'standard.noise': {
+        if (node.scope !== 'voice') {
+          const noise = this.nodeState.get(node.id); const sample = noise instanceof NoiseGenerator ? noise.nextSample() * finite(p.level, .25) : 0; set('audioOut', sanitizeSample(sample)); return sample;
+        }
+        const lanes = voices.map(voice => {
+          const noise = this.#voiceRuntime(node, voice.voiceId, () => new NoiseGenerator({ seed: voiceSeed(p.seed, voice.voiceId), type: noiseTypeFrom(p.type) }));
+          noise.type = noiseTypeFrom(p.type);
+          return [voice.voiceId, sanitizeSample(noise.nextSample() * finite(p.level, .25) * finite(voice.velocity, 1))];
+        });
+        set('audioOut', this.#voiceBundle(lanes)); return 0;
+      }
+      case 'core.adsr': {
+        const gateInput = this.#inputValue(node.id, 'gateIn', outputs);
+        if (node.scope === 'voice') {
+          const ids = new Set(voices.map(v => v.voiceId));
+          if (this.#isVoiceBundle(gateInput)) for (const id of gateInput.lanes.keys()) ids.add(id);
+          const lanes = [];
+          for (const id of ids) {
+            const voice = voices.find(v => v.voiceId === id);
+            const gate = this.#isVoiceBundle(gateInput) ? this.#lane(gateInput, id) : finite(voice?.gate, 0);
+            const state = this.#voiceRuntime(node, id, () => ({ dsp: new ADSREnvelope({ sampleRate: this.sampleRate, attack: finite(p.attack,.01), decay: finite(p.decay,.15), sustain: finite(p.sustain,.7), release: finite(p.release,.25) }), lastGate: 0, lastStartedFrame: null }));
+            state.dsp.attack = Math.max(0, finite(p.attack,.01)); state.dsp.decay = Math.max(0, finite(p.decay,.15)); state.dsp.sustain = Math.max(0, Math.min(1, finite(p.sustain,.7))); state.dsp.release = Math.max(0, finite(p.release,.25));
+            const started = voice?.startedFrame ?? null;
+            if (gate > 0 && (state.lastGate <= 0 || (started != null && started !== state.lastStartedFrame))) state.dsp.gateOn('reset');
+            if (gate <= 0 && state.lastGate > 0) state.dsp.gateOff();
+            state.lastGate = gate; state.lastStartedFrame = started;
+            lanes.push([id, state.dsp.nextSample()]);
+          }
+          set('controlOut', this.#voiceBundle(lanes)); return 0;
+        }
+        const state = this.nodeState.get(node.id);
+        if (!state?.dsp) { set('controlOut',0); return 0; }
+        const gate = this.#scalar(gateInput);
+        if (gate > 0 && state.lastGate <= 0) state.dsp.gateOn('reset');
+        if (gate <= 0 && state.lastGate > 0) state.dsp.gateOff();
+        state.lastGate = gate; set('controlOut', state.dsp.nextSample()); return 0;
+      }
+      case 'core.lfo': {
+        if (node.scope === 'voice') {
+          const lanes = voices.map(voice => {
+            const lfo = this.#voiceRuntime(node, voice.voiceId, () => new LFO({ sampleRate:this.sampleRate, frequency:finite(p.rate,1), amount:finite(p.amount,1) }));
+            lfo.frequency = Math.max(0, Math.min(this.sampleRate*.499, finite(p.rate,1))); lfo.amount = Math.max(0,Math.min(1,finite(p.amount,1)));
+            return [voice.voiceId,lfo.nextSample()];
+          });
+          set('controlOut',this.#voiceBundle(lanes)); return 0;
+        }
+        const lfo=this.nodeState.get(node.id); if(!(lfo instanceof LFO)){set('controlOut',0);return 0;}
+        lfo.frequency=Math.max(0,Math.min(this.sampleRate*.499,finite(p.rate,1)));lfo.amount=Math.max(0,Math.min(1,finite(p.amount,1)));
+        set('controlOut',lfo.nextSample()); return 0;
+      }
+      case 'core.vca': {
+        const audio=this.#inputValue(node.id,'audioIn',outputs);
+        const routes=this.#modulationValues(node.id,'gain',outputs);
+        if (this.#isVoiceBundle(audio) || routes.some(item=>this.#isVoiceBundle(item.value))) {
+          const ids=new Set(this.#isVoiceBundle(audio)?audio.lanes.keys():voices.map(v=>v.voiceId));
+          for(const item of routes) if(this.#isVoiceBundle(item.value)) for(const id of item.value.lanes.keys()) ids.add(id);
+          const lanes=[...ids].map(id=>{
+            const source=this.#lane(audio,id);
+            let gain=finite(p.gain,1);
+            if(routes.length){ let control=0; for(const {route,value} of routes) control += this.#lane(value,id)*finite(route.amount,1); gain*=Math.max(0,control); }
+            return [id,applyVca(source,gain)];
+          });
+          set('audioOut',this.#voiceBundle(lanes)); return 0;
+        }
+        let gain=finite(p.gain,1); if(routes.length) gain*=Math.max(0,this.#modulationSum(node.id,'gain',outputs));
+        const sample=applyVca(this.#scalar(audio),gain); set('audioOut',sample); return sample;
+      }
+      case 'core.voice-sum': {
+        const audio=this.#inputValue(node.id,'audioIn',outputs);
+        const sample=sanitizeSample(this.#scalar(audio)*finite(p.gain,1)); set('audioOut',sample); return sample;
+      }
+      case 'core.filter': {
+        const audio=this.#inputValue(node.id,'audioIn',outputs);
+        if(this.#isVoiceBundle(audio)){
+          const lanes=[...audio.lanes.entries()].map(([id,input])=>{
+            const filter=this.#voiceRuntime(node,id,()=>new StateVariableFilter({sampleRate:this.sampleRate,cutoff:finite(p.cutoff,12000),resonance:finite(p.resonance,.1),mode:filterModeFrom(p.mode)}));
+            const cutoff=Math.max(20,Math.min(this.sampleRate*.45,finite(p.cutoff,12000)*2**this.#modulationSum(node.id,'cutoff',outputs,id)));
+            filter.setCutoff(cutoff);filter.setResonance(finite(p.resonance,.1));filter.mode=filterModeFrom(p.mode);
+            const drive=Math.max(0,finite(p.drive,0));const driven=drive?Math.tanh(input*(1+drive)):input;return[id,filter.processSample(driven)];
+          }); set('audioOut',this.#voiceBundle(lanes));return 0;
+        }
+        const filter=this.nodeState.get(node.id);if(!(filter instanceof StateVariableFilter)){set('audioOut',0);return 0;}
+        filter.setCutoff(Math.max(20,Math.min(this.sampleRate*.45,finite(p.cutoff,12000)*2**this.#modulationSum(node.id,'cutoff',outputs))));
+        filter.setResonance(finite(p.resonance,.1));filter.mode=filterModeFrom(p.mode);const drive=Math.max(0,finite(p.drive,0));const dry=this.#scalar(audio);const sample=filter.processSample(drive?Math.tanh(dry*(1+drive)):dry);set('audioOut',sample);return sample;
+      }
+      case 'core.mixer': {
+        const inputs=[...this.#inputValues(node.id,'audioInA',outputs),...this.#inputValues(node.id,'audioInB',outputs)];
+        const value=inputs.length?this.#inputValue(node.id,'audioInA',outputs):0;
+        const other=this.#inputValue(node.id,'audioInB',outputs);
+        if(this.#isVoiceBundle(value)||this.#isVoiceBundle(other)){
+          const ids=new Set();for(const v of [value,other])if(this.#isVoiceBundle(v))for(const id of v.lanes.keys())ids.add(id);
+          const lanes=[...ids].map(id=>[id,sanitizeSample((this.#lane(value,id)+this.#lane(other,id))*finite(p.gain,.5))]);set('audioOut',this.#voiceBundle(lanes));return 0;
+        }
+        const sample=sanitizeSample((this.#scalar(value)+this.#scalar(other))*finite(p.gain,.5));set('audioOut',sample);return sample;
+      }
+      case 'beta.additive-oscillator':
+      case 'beta.wavetable-oscillator':
+      case 'beta.supersaw': {
+        if(node.scope==='voice'){
+          const lanes=voices.map(voice=>{const osc=this.#advancedVoiceOscillator(node,voice);return[voice.voiceId,sanitizeSample(osc.nextSample()*finite(voice.velocity,1))]});set('audioOut',this.#voiceBundle(lanes));return 0;
+        }
+        const osc=this.nodeState.get(node.id);const sample=osc?.nextSample?sanitizeSample(osc.nextSample()):0;set('audioOut',sample);return sample;
+      }
+      case 'core.distortion':
+      case 'core.delay':
+      case 'core.echo':
+      case 'beta.chorus':
+      case 'beta.phaser':
+      case 'beta.reverb':
+      case 'beta.eq':
+      case 'beta.compressor': {
+        const audio=this.#inputValue(node.id,'audioIn',outputs);
+        const process=value=>{const effect=this.nodeState.get(node.id);return effect?.processSample?effect.processSample(value):sanitizeSample(value)};
+        if(this.#isVoiceBundle(audio)){const lanes=[...audio.lanes].map(([id,v])=>[id,process(v)]);set('audioOut',this.#voiceBundle(lanes));return 0;}
+        const sample=process(this.#scalar(audio));set('audioOut',sample);return sample;
+      }
+      case 'beta.ring-mod': {
+        const a=this.#inputValue(node.id,'audioInA',outputs), b=this.#inputValue(node.id,'audioInB',outputs), mix=Math.max(0,Math.min(1,finite(p.mix,1)));
+        if(this.#isVoiceBundle(a)||this.#isVoiceBundle(b)){const ids=new Set();for(const v of [a,b])if(this.#isVoiceBundle(v))for(const id of v.lanes.keys())ids.add(id);const lanes=[...ids].map(id=>{const av=this.#lane(a,id),bv=this.#lane(b,id);return[id,sanitizeSample(av*(1-mix)+av*bv*mix)]});set('audioOut',this.#voiceBundle(lanes));return 0;}
+        const av=this.#scalar(a),bv=this.#scalar(b),sample=sanitizeSample(av*(1-mix)+av*bv*mix);set('audioOut',sample);return sample;
+      }
+      case 'beta.scope-probe': { const value=this.#inputValue(node.id,'audioIn',outputs);set('audioOut',value);return this.#scalar(value); }
+      case 'beta.control-probe': { const value=this.#inputValue(node.id,'controlIn',outputs);set('controlOut',value);return 0; }
+      case 'beta.envelope-follower': { const value=Math.min(1,Math.abs(this.#scalar(this.#inputValue(node.id,'audioIn',outputs)))*finite(p.gain,1));set('controlOut',value);return 0; }
+      case 'beta.macro': set('controlOut',finite(p.value,.5));return 0;
+      case 'beta.xy-pad': set('xOut',finite(p.x,.5));set('yOut',finite(p.y,.5));return 0;
+      case 'beta.voice-reduce': { const value=this.#inputValue(node.id,'controlIn',outputs);set('controlOut',this.#scalar(value));return 0; }
+      case 'beta.stereo-utility': { const value=this.#inputValue(node.id,'audioIn',outputs);set('audioOut',value);return this.#scalar(value); }
+      case 'core.master-output': return sanitizeSample(this.#scalar(this.#inputValue(node.id,'audioIn',outputs))*finite(p.gain,.8));
+      default: {
+        const outputPort=node.ports?.find(port=>port.direction==='output');
+        const inputPort=node.ports?.find(port=>port.direction==='input');
+        if(outputPort){const value=inputPort?this.#inputValue(node.id,inputPort.id,outputs):0;set(outputPort.id,value);}
+        return 0;
+      }
+    }
+  }
+
   #processNode(node, values) {
     const incoming = this.#incoming(node.id, values);
     const input = incoming.reduce((sum, value) => sum + finite(value), 0);
@@ -369,8 +616,7 @@ export class WorkletRuntime {
       const values = new Map();
       let master = 0;
       for (const node of this.graph.nodes) {
-        const value = this.#processNode(node, values);
-        values.set(node.id, value);
+        const value = this.#processSignalNode(node, values);
         if (node.type === 'core.master-output') master += value;
       }
       const sample = sanitizeSample(master * this.masterGain);

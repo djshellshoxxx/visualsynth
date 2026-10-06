@@ -6,7 +6,7 @@ import { compilePatchGraph } from '../../src/graph/compile.js';
 import { WorkletRuntime } from '../../src/engine/worklet-processor.js';
 
 const mod=(id,type,parameters={})=>({id,type,scope:'global',moduleVersion:1,position:{x:0,y:0},parameters});
-const edge=(id,a,b)=>({id,from:{moduleId:a,portId:'audioOut'},to:{moduleId:b,portId:'audioIn'}});
+const edge=(id,a,b,toPort='audioIn')=>({id,from:{moduleId:a,portId:'audioOut'},to:{moduleId:b,portId:toPort}});
 
 describe('causal feedback cycles',()=>{
   beforeEach(()=>{clearModuleRegistry();registerCoreModuleTypes();});
@@ -19,7 +19,7 @@ describe('causal feedback cycles',()=>{
       master:mod('master','core.master-output',{gain:.8})
     };
     const patch={formatVersion:1,name:'feedback',modules,connections:[
-      edge('a','osc','mix'),edge('b','mix','fb'),edge('c','fb','mix'),edge('d','mix','master')
+      edge('a','osc','mix','audioInA'),edge('b','mix','fb'),edge('c','fb','mix','audioInA'),edge('d','mix','master')
     ],settings:{}};
     expect(validatePatchGraph(patch).valid).toBe(true);
     const graph=compilePatchGraph(patch);
@@ -31,7 +31,7 @@ describe('causal feedback cycles',()=>{
 
   test('continues to reject an ordinary zero-delay loop',()=>{
     const modules={a:mod('a','core.mixer',{gain:.5}),b:mod('b','core.mixer',{gain:.5})};
-    const patch={formatVersion:1,name:'bad',modules,connections:[edge('a','a','b'),edge('b','b','a')],settings:{}};
+    const patch={formatVersion:1,name:'bad',modules,connections:[edge('a','a','b','audioInA'),edge('b','b','a','audioInA')],settings:{}};
     expect(validatePatchGraph(patch).valid).toBe(false);
   });
 });

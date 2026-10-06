@@ -21,7 +21,7 @@ export const CORE_MODULE_DEFINITIONS = Object.freeze([
     typeId: 'core.oscillator', title: 'Oscillator', defaultScope: VoiceScope.VOICE, allowedScopes: [VoiceScope.VOICE, VoiceScope.GLOBAL],
     ports: [input('pitchIn', SignalType.PITCH), input('fmIn', SignalType.CONTROL, { optional: true }), input('pmIn', SignalType.CONTROL, { optional: true }), input('resetIn', SignalType.TRIGGER, { optional: true }), output('audioOut', SignalType.AUDIO)],
     parameters: [
-      parameter('waveform', 0, 6, 2, { curve: 'choice', smoothingMs: 0, modulatable: false, choices: ['sine', 'triangle', 'saw', 'reverse-saw', 'square', 'pulse', 'variable'] }),
+      parameter('waveform', 0, 6, 2, { curve: 'choice', smoothingMs: 0, modulatable: false, choices: ['sine', 'triangle', 'saw', 'reverse-saw', 'square', 'pulse', 'sub', 'variable'] }),
       parameter('octave', -4, 4, 0, { curve: 'integer', unit: 'oct', smoothingMs: 0 }), parameter('semitone', -12, 12, 0, { curve: 'integer', unit: 'st', smoothingMs: 0 }),
       parameter('cents', -100, 100, 0, { unit: 'cent', smoothingMs: 8 }), parameter('amplitude', 0, 1, 0.25, { smoothingMs: 8 }), parameter('pulseWidth', 0.02, 0.98, 0.5, { smoothingMs: 8 })
     ]
@@ -59,7 +59,7 @@ export const CORE_MODULE_DEFINITIONS = Object.freeze([
   {
     typeId: 'core.lfo', title: 'LFO', defaultScope: VoiceScope.GLOBAL, allowedScopes: [VoiceScope.VOICE, VoiceScope.GLOBAL],
     ports: [input('resetIn', SignalType.TRIGGER, { optional: true }), output('controlOut', SignalType.CONTROL)],
-    parameters: [parameter('rate', 0.01, 40, 1, { curve: 'log', unit: 'Hz', smoothingMs: 8 }), parameter('amount', 0, 1, 1, { smoothingMs: 8 })]
+    parameters: [parameter('waveform', 0, 7, 0, { curve: 'choice', choices: ['sine','triangle','saw','reverse-saw','square','sample-hold','smooth-random','stepped-random'], smoothingMs: 0, modulatable: false }), parameter('rate', 0.01, 40, 1, { curve: 'log', unit: 'Hz', smoothingMs: 8 }), parameter('amount', 0, 1, 1, { smoothingMs: 8 }), parameter('seed',1,65535,1,{curve:'integer',smoothingMs:0,modulatable:false})]
   },
   { typeId: 'core.vca', title: 'VCA', defaultScope: VoiceScope.VOICE, allowedScopes: [VoiceScope.VOICE, VoiceScope.GLOBAL], ports: [input('audioIn', SignalType.AUDIO), input('gainIn', SignalType.CONTROL), output('audioOut', SignalType.AUDIO)], parameters: [parameter('gain', 0, 2, 1, { smoothingMs: 8 })] },
   { typeId: 'core.voice-sum', title: 'Voice Sum', defaultScope: VoiceScope.GLOBAL, allowedScopes: [VoiceScope.GLOBAL], ports: [input('audioIn', SignalType.AUDIO, { multiple: true, voiceBoundary: true }), output('audioOut', SignalType.AUDIO)], parameters: [parameter('gain', 0, 2, 1, { smoothingMs: 8 })] },

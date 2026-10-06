@@ -49,5 +49,5 @@ test('learning mode offers the complete lesson set and can be disabled without c
 test('signal flow highlights a source-to-master route', async ({ page }) => {
   await page.goto('./');
   await page.getByRole('button', { name: 'Trace signal flow' }).click();
-  await expect(page.locator('.module-card[data-signal-path="true"]')).toHaveCountGreaterThan(1);
+  expect(await page.locator('.module-card[data-signal-path="true"]').count()).toBeGreaterThan(1);
 });

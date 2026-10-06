@@ -4,9 +4,12 @@ function getPort(definition, portId, direction) {
   return definition.ports.find((port) => port.id === portId && port.direction === direction);
 }
 
-function detectCycle(moduleIds, connections) {
+function detectCycle(moduleIds, connections, modules = {}) {
   const adjacency = new Map(moduleIds.map((id) => [id, []]));
   for (const edge of connections) {
+    if (edge.enabled === false) continue;
+    if (modules[edge.from.moduleId]?.type === 'core.feedback-delay') continue;
+    if (modules[edge.from.moduleId]?.enabled === false || modules[edge.to.moduleId]?.enabled === false) continue;
     if (adjacency.has(edge.from.moduleId)) adjacency.get(edge.from.moduleId).push(edge.to.moduleId);
   }
 
@@ -98,7 +101,7 @@ export function validatePatchGraph(patch) {
     }
   }
 
-  if (detectCycle(Object.keys(modules), connections)) {
+  if (detectCycle(Object.keys(modules), connections, modules)) {
     errors.push('Graph contains a zero-delay cycle');
   }
 

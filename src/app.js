@@ -4,7 +4,7 @@ import { ComputerKeyboardInput } from './input/computer-keyboard.js';
 import { PatchStore } from './persistence/patch-store.js';
 import { DiagnosticsView, collectDiagnostics } from './ui/diagnostics-view.js';
 import { KeyboardView } from './ui/keyboard-view.js';
-import { MasterView } from './ui/master-view.js';
+import { MasterView } from './ui/master-view.js';\nimport { BetaToolsView } from './ui/beta-tools-view.js';
 import { WorkspaceController } from './ui/workspace.js';
 import { VisualizationScheduler } from './visual/scheduler.js';
 import { DEFAULT_EXAMPLE_ID, EXAMPLE_PATCHES, INIT_EXAMPLE_ID, getExamplePatch } from './presets/example-patches.js';
@@ -33,7 +33,7 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   const saveButton = document.querySelector('#patch-save');
   const loadButton = document.querySelector('#patch-load');
   const diagnosticsToggle = document.querySelector('#diagnostics-toggle');
-  const diagnosticsRoot = document.querySelector('#diagnostics-panel');
+  const diagnosticsRoot = document.querySelector('#diagnostics-panel');\n  const betaToolsRoot = document.querySelector('#beta-tools');
   const meter = masterRoot?.querySelector('[role="meter"]');
   const meterFill = meter?.querySelector('span');
   const voicesLabel = document.querySelector('#master-voices');
@@ -157,6 +157,14 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
     if (peakLabel) peakLabel.textContent = peak.toFixed(2);
   }, 'high');
 
+  const betaToolsView = betaToolsRoot && workspace ? new BetaToolsView({
+    root: betaToolsRoot,
+    workspace,
+    engine,
+    visualizationScheduler,
+    recordEvent
+  }) : null;
+
   const diagnosticsView = diagnosticsRoot ? new DiagnosticsView({
     root: diagnosticsRoot,
     toggle: diagnosticsToggle,
@@ -214,10 +222,10 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   shell.visualSynthKeyboardView = keyboardView;
   shell.visualSynthMasterView = masterView;
   shell.visualSynthVisualizationScheduler = visualizationScheduler;
-  shell.visualSynthDiagnosticsView = diagnosticsView;
+  shell.visualSynthDiagnosticsView = diagnosticsView;\n  shell.visualSynthBetaToolsView = betaToolsView;
   shell.visualSynthLoadExample = loadPreset;
   shell.visualSynthLoadPreset = loadPreset;
-  return { engine, workspace, patchStore, keyboard, keyboardView, masterView, visualizationScheduler, diagnosticsView, loadExample: loadPreset, loadPreset };
+  return { engine, workspace, patchStore, keyboard, keyboardView, masterView, visualizationScheduler, diagnosticsView, betaToolsView, loadExample: loadPreset, loadPreset };
 }
 
 if (document.readyState === 'loading') {

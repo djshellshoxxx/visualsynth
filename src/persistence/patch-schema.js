@@ -86,7 +86,9 @@ function validateModule(module) {
   if (!module || typeof module !== 'object' || Array.isArray(module)) throw new Error('Patch module must be an object');
   if (!module.id || typeof module.id !== 'string') throw new Error('Patch module requires a string id');
   if (!module.type || typeof module.type !== 'string') throw new Error(`Module ${module.id} requires a type`);
-  const definition = getModuleType(module.type);
+  let definition;
+  try { definition = getModuleType(module.type); }
+  catch { return { unknown: true }; }
   if (!definition.allowedScopes.includes(module.scope)) throw new Error(`Module ${module.id} has invalid scope ${module.scope}`);
 
   const knownParameters = new Map((definition.parameters ?? []).map(parameter => [parameter.id, parameter]));
@@ -97,6 +99,7 @@ function validateModule(module) {
     if (value < parameter.min || value > parameter.max) throw new Error(`Parameter ${module.id}.${parameterId} is outside its allowed range`);
   }
   assertFiniteTree(module.state ?? {}, `module ${module.id} state`);
+  return { unknown: false };
 }
 
 function documentToPatch(document) {
@@ -107,8 +110,23 @@ function documentToPatch(document) {
 
   const modules = {};
   for (const raw of document.modules) {
-    validateModule(raw);
+    const validation = validateModule(raw);
     if (modules[raw.id]) throw new Error(`Duplicate module id: ${raw.id}`);
+    if (validation?.unknown) {
+      assertFiniteTree(raw, `unknown module ${raw.id}`);
+      modules[raw.id] = {
+        id: raw.id,
+        type: 'system.unknown-placeholder',
+        moduleVersion: 1,
+        scope: 'global',
+        position: { x: Number.isFinite(raw.ui?.x) ? raw.ui.x : 0, y: Number.isFinite(raw.ui?.y) ? raw.ui.y : 0 },
+        parameters: {},
+        enabled: false,
+        name: raw.name ?? raw.id,
+        state: { originalType: raw.type, originalModule: structuredClone(raw) }
+      };
+      continue;
+    }
     modules[raw.id] = {
       id: raw.id,
       type: raw.type,
@@ -149,7 +167,15 @@ function documentToPatch(document) {
     name: document.name ?? 'Untitled Patch',
     modules,
     connections,
-    settings
+    settings,
+    ...(document.transport && Object.keys(document.transport).length ? { transport: structuredClone(document.transport) } : {}),
+    ...(Array.isArray(document.modulations) && document.modulations.length ? { modulations: structuredClone(document.modulations) } : {}),
+    ...(Array.isArray(document.automation) && document.automation.length ? { automation: structuredClone(document.automation) } : {}),
+    ...(Array.isArray(document.probes) && document.probes.length ? { probes: structuredClone(document.probes) } : {}),
+    ...(Array.isArray(document.midiMappings) && document.midiMappings.length ? { midiMappings: structuredClone(document.midiMappings) } : {}),
+    ...(document.performanceView && Object.keys(document.performanceView).length ? { performanceView: structuredClone(document.performanceView) } : {}),
+    ...(document.ui && Object.keys(document.ui).length ? { ui: structuredClone(document.ui) } : {}),
+    ...(document.extensions && Object.keys(document.extensions).length ? { extensions: structuredClone(document.extensions) } : {})
   });
 
   assertFiniteTree(patch, 'patch');

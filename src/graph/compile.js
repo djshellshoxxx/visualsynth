@@ -15,6 +15,7 @@ function topologicalOrder(patch) {
 
   for (const edge of patch.connections ?? []) {
     if (edge.enabled === false || !adjacency.has(edge.from.moduleId) || !adjacency.has(edge.to.moduleId)) continue;
+    if (patch.modules?.[edge.from.moduleId]?.type === 'core.feedback-delay') continue;
     adjacency.get(edge.from.moduleId)?.push(edge.to.moduleId);
     indegree.set(edge.to.moduleId, (indegree.get(edge.to.moduleId) ?? 0) + 1);
   }

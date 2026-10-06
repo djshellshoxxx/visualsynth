@@ -42,7 +42,7 @@ export const CORE_MODULE_DEFINITIONS = Object.freeze([
     ports: [input('audioIn', SignalType.AUDIO), input('cutoffMod', SignalType.CONTROL, { optional: true, multiple: true }), output('audioOut', SignalType.AUDIO)],
     parameters: [
       parameter('mode', 0, 3, 0, { curve: 'choice', choices: ['lowpass', 'highpass', 'bandpass', 'notch'], smoothingMs: 0, modulatable: false }),
-      parameter('cutoff', 20, 20000, 12000, { curve: 'log', unit: 'Hz', smoothingMs: 12 }), parameter('resonance', 0, 1, 0.1, { smoothingMs: 12 }), parameter('drive', 0, 8, 0, { smoothingMs: 8 })
+      parameter('cutoff', 20, 20000, 12000, { curve: 'log', unit: 'Hz', smoothingMs: 12 }), parameter('resonance', 0, 1, 0.1, { smoothingMs: 12 }), parameter('slope', 0, 3, 0, { curve:'choice', choices:['12 dB/oct','24 dB/oct','36 dB/oct','48 dB/oct'], smoothingMs:0, modulatable:false }), parameter('drive', 0, 8, 0, { smoothingMs: 8 }), parameter('wet',0,1,1,{smoothingMs:8}), parameter('keytracking',0,1,0,{smoothingMs:8})
     ]
   },
   {

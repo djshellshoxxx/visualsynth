@@ -2,6 +2,8 @@ import { Oscillator } from '../dsp/oscillator.js';
 import { ADSREnvelope } from '../dsp/envelope.js';
 import { LFO } from '../dsp/lfo.js';
 import { FeedbackDelay } from '../dsp/feedback-delay.js';
+import { MultiStageEnvelope } from '../dsp/mseg.js';
+import { euclideanPattern, deterministicProbability } from '../sequencing/sequencers.js';
 import { NoiseGenerator } from '../dsp/noise.js';
 import { StateVariableFilter, FilterCascade } from '../dsp/filters.js';
 import { DistortionEffect, DelayEffect, EchoEffect } from '../dsp/effects.js';
@@ -13,7 +15,7 @@ import { VoiceEngine } from './voice-engine.js';
 import { EngineMessageType, validateEngineMessage } from './protocol.js';
 
 const WAVEFORMS = ['sine', 'triangle', 'saw', 'reverse-saw', 'square', 'pulse', 'sub', 'sine'];
-const NOISE_TYPES = ['white', 'pink', 'brown'];
+const NOISE_TYPES = ['white', 'pink', 'brown', 'blue'];
 const FILTER_MODES = ['lowpass', 'highpass', 'bandpass', 'notch'];
 
 function waveformFrom(value) {
@@ -75,6 +77,9 @@ export class WorkletRuntime {
         nextState.set(node.id, new FeedbackDelay({ samples: finite(p.samples, 1), feedback: finite(p.feedback, .35) }));
       } else if (node.type === 'core.adsr' && node.scope !== 'voice') {
         nextState.set(node.id, { dsp: new ADSREnvelope({ sampleRate: this.sampleRate, attack: finite(p.attack, .01), decay: finite(p.decay, .15), sustain: finite(p.sustain, .7), release: finite(p.release, .25) }), lastGate: 0 });
+      } else if (node.type === 'beta.mseg' && node.scope !== 'voice') {
+        const points = Array.isArray(node.state?.points) ? node.state.points : [{time:0,value:0},{time:.01,value:1},{time:.2,value:.7}];
+        nextState.set(node.id, { dsp: new MultiStageEnvelope({ sampleRate: this.sampleRate, points, loop: Boolean(Math.round(finite(p.loop,0))) }), lastGate: 0 });
       } else if (node.type === 'core.lfo' && node.scope !== 'voice') {
         nextState.set(node.id, new LFO({ sampleRate: this.sampleRate, waveform: ['sine','triangle','saw','reverse-saw','square','sample-hold','smooth-random','stepped-random'][Math.round(finite(p.waveform,0))] ?? 'sine', frequency: finite(p.rate, 1), amount: finite(p.amount, 1), seed: finite(p.seed,1) }));
       } else if (node.type === 'core.filter') {
@@ -382,16 +387,21 @@ export class WorkletRuntime {
         if (node.scope !== 'voice') {
           const oscillator = this.nodeState.get(node.id);
           if (!(oscillator instanceof Oscillator)) { set('audioOut', 0); return 0; }
-          const base = finite(p.frequency, oscillator.frequency || 220);
+          const pitchConnections=this.#inputValues(node.id,'pitchIn',outputs);
           const fm = this.#modulationSum(node.id, 'pitch', outputs);
-          oscillator.setFrequency(base * 2 ** (fm / 12));
+          if(pitchConnections.length) oscillator.setFrequency(midiNoteToHz(this.#scalar(this.#inputValue(node.id,'pitchIn',outputs))+fm));
+          else {
+            const base = finite(p.frequency, oscillator.frequency || 220);
+            oscillator.setFrequency(base * 2 ** (fm / 12));
+          }
           const sample = sanitizeSample(oscillator.nextSample() * finite(p.amplitude, .25));
           set('audioOut', sample); return sample;
         }
+        const pitchConnections=this.#inputValues(node.id,'pitchIn',outputs);
         const pitchInput = this.#inputValue(node.id, 'pitchIn', outputs);
         const lanes = [];
         for (const voice of voices) {
-          const pitch = (this.#isVoiceBundle(pitchInput) ? this.#lane(pitchInput, voice.voiceId) : voice.pitch)
+          const pitch = (this.#isVoiceBundle(pitchInput) ? this.#lane(pitchInput, voice.voiceId) : (pitchConnections.length ? this.#scalar(pitchInput) : voice.pitch))
             + finite(p.octave, 0) * 12 + finite(p.semitone, 0) + finite(p.cents, 0) / 100
             + this.#modulationSum(node.id, 'pitch', outputs, voice.voiceId);
           const oscillator = this.#voiceRuntime(node, voice.voiceId, () => new Oscillator({ sampleRate: this.sampleRate, waveform: waveformFrom(p.waveform), frequency: midiNoteToHz(pitch), pulseWidth: finite(p.pulseWidth, .5) }));
@@ -436,6 +446,58 @@ export class WorkletRuntime {
         if (gate > 0 && state.lastGate <= 0) state.dsp.gateOn('reset');
         if (gate <= 0 && state.lastGate > 0) state.dsp.gateOff();
         state.lastGate = gate; set('controlOut', state.dsp.nextSample()); return 0;
+      }
+      case 'beta.mseg': {
+        const gateInput=this.#inputValue(node.id,'gateIn',outputs);
+        const points=(Array.isArray(node.state?.points)&&node.state.points.length>1?node.state.points:[{time:0,value:0},{time:.01,value:1},{time:.2,value:.7}])
+          .map(point=>({...point,time:point.time/Math.max(.05,finite(p.rate,1))}));
+        if(node.scope==='voice'){
+          const ids=new Set(voices.map(v=>v.voiceId)); if(this.#isVoiceBundle(gateInput))for(const id of gateInput.lanes.keys())ids.add(id);
+          const lanes=[];
+          for(const id of ids){
+            const voice=voices.find(v=>v.voiceId===id),gate=this.#isVoiceBundle(gateInput)?this.#lane(gateInput,id):finite(voice?.gate,0);
+            const state=this.#voiceRuntime(node,id,()=>({dsp:new MultiStageEnvelope({sampleRate:this.sampleRate,points,loop:Boolean(Math.round(finite(p.loop,0)))}),lastGate:0,lastStartedFrame:null}));
+            state.dsp.setPoints(points);state.dsp.loop=Boolean(Math.round(finite(p.loop,0)));
+            const started=voice?.startedFrame??null;
+            if(gate>0&&(state.lastGate<=0||(started!=null&&started!==state.lastStartedFrame)))state.dsp.gateOn();
+            if(gate<=0&&state.lastGate>0)state.dsp.gateOff();
+            state.lastGate=gate;state.lastStartedFrame=started;lanes.push([id,state.dsp.nextSample()]);
+          }
+          set('controlOut',this.#voiceBundle(lanes));return 0;
+        }
+        const state=this.nodeState.get(node.id);if(!state?.dsp){set('controlOut',0);return 0;}
+        state.dsp.setPoints(points);state.dsp.loop=Boolean(Math.round(finite(p.loop,0)));
+        const gate=this.#scalar(gateInput);if(gate>0&&state.lastGate<=0)state.dsp.gateOn();if(gate<=0&&state.lastGate>0)state.dsp.gateOff();state.lastGate=gate;set('controlOut',state.dsp.nextSample());return 0;
+      }
+      case 'beta.transport': {
+        const frame=this.processingFrame??this.currentFrame,bpm=Math.max(20,Math.min(300,finite(p.bpm,120))),framesPerBeat=this.sampleRate*60/bpm;
+        const sixteenth=Math.max(1,Math.round(framesPerBeat/4)),beat=Math.max(1,Math.round(framesPerBeat));
+        set('clockOut',frame%sixteenth===0?1:0);set('resetOut',frame%(beat*4)===0?1:0);return 0;
+      }
+      case 'beta.step-sequencer': {
+        const frame=this.processingFrame??this.currentFrame,bpm=finite(this.graph?.transport?.bpm,120),fps=Math.max(1,Math.round(this.sampleRate*60/Math.max(20,bpm)/4));
+        const sequence=Array.isArray(node.state?.steps)&&node.state.steps.length?node.state.steps:[60,62,64,67,72,67,64,62];
+        const count=Math.max(1,Math.min(sequence.length,Math.round(finite(p.steps,sequence.length)))),index=Math.floor(frame/fps)%count,phase=(frame%fps)/fps;
+        const step=sequence[index];const pitch=typeof step==='object'?finite(step.pitch,60):finite(step,60);const velocity=typeof step==='object'?finite(step.velocity,1):1;const probability=typeof step==='object'?finite(step.probability,1):1;
+        const active=deterministicProbability(finite(node.state?.seed,1),Math.floor(frame/fps),probability);
+        set('pitchOut',pitch);set('gateOut',active&&phase<finite(p.gate,.75)?velocity:0);set('triggerOut',active&&frame%fps===0?1:0);return 0;
+      }
+      case 'beta.gate-sequencer': {
+        const frame=this.processingFrame??this.currentFrame,bpm=finite(this.graph?.transport?.bpm,120),fps=Math.max(1,Math.round(this.sampleRate*60/Math.max(20,bpm)/4));
+        const sequence=Array.isArray(node.state?.steps)&&node.state.steps.length?node.state.steps:[1,0,1,0,1,1,0,1],count=Math.max(1,Math.min(sequence.length,Math.round(finite(p.steps,sequence.length)))),index=Math.floor(frame/fps)%count;
+        const value=Math.max(-1,Math.min(1,finite(sequence[index],0)*finite(p.amount,1)));set('gateOut',value>0?1:0);set('controlOut',value);return 0;
+      }
+      case 'beta.arpeggiator': {
+        const frame=this.processingFrame??this.currentFrame,bpm=finite(this.graph?.transport?.bpm,120),division=Math.max(.25,finite(p.rate,1)),fps=Math.max(1,Math.round(this.sampleRate*60/Math.max(20,bpm)/division));
+        const held=voices.filter(v=>v.gate>0).map(v=>v.pitch).sort((a,b)=>a-b); if(!held.length){set('pitchOut',60);set('gateOut',0);return 0;}
+        const step=Math.floor(frame/fps),octaves=Math.max(1,Math.round(finite(p.octaves,1))),mode=Math.round(finite(p.mode,0));let index=step%(held.length*octaves),octave=Math.floor(index/held.length),base=index%held.length;
+        if(mode===1)base=held.length-1-base;else if(mode===2){const span=Math.max(1,held.length*2-2),pos=step%span;base=pos<held.length?pos:span-pos;}else if(mode===3)base=Math.floor(((Math.sin((step+1)*12.9898)*43758.5453)%1+1)%1*held.length);
+        set('pitchOut',held[Math.max(0,Math.min(held.length-1,base))]+octave*12);set('gateOut',(frame%fps)/fps<.72?1:0);return 0;
+      }
+      case 'beta.euclidean': {
+        const frame=this.processingFrame??this.currentFrame,bpm=finite(this.graph?.transport?.bpm,120),fps=Math.max(1,Math.round(this.sampleRate*60/Math.max(20,bpm)/4)),steps=Math.max(1,Math.min(32,Math.round(finite(p.steps,16)))),pulses=Math.max(0,Math.min(steps,Math.round(finite(p.pulses,5)))),rotation=Math.round(finite(p.rotation,0));
+        const pattern=euclideanPattern(pulses,steps,rotation),index=Math.floor(frame/fps)%steps,trigger=frame%fps===0&&pattern[index]&&deterministicProbability(finite(node.state?.seed,1),Math.floor(frame/fps),finite(p.probability,1));
+        set('triggerOut',trigger?1:0);return 0;
       }
       case 'core.lfo': {
         if (node.scope === 'voice') {
@@ -631,6 +693,7 @@ export class WorkletRuntime {
     let peak = 0;
     for (let i = 0; i < blockLength; i += 1) {
       const frame = this.currentFrame + i;
+      this.processingFrame = frame;
       this.voiceEngine.processRange(frame, frame + 1);
       const values = new Map();
       for (const node of this.graph.nodes) {

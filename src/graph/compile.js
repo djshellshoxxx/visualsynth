@@ -9,11 +9,12 @@ const MODULATION_DESTINATIONS = Object.freeze({
 });
 
 function topologicalOrder(patch) {
-  const moduleIds = Object.keys(patch.modules ?? {}).sort();
+  const moduleIds = Object.values(patch.modules ?? {}).filter(module => module.enabled !== false).map(module => module.id).sort();
   const indegree = new Map(moduleIds.map((id) => [id, 0]));
   const adjacency = new Map(moduleIds.map((id) => [id, []]));
 
   for (const edge of patch.connections ?? []) {
+    if (edge.enabled === false || !adjacency.has(edge.from.moduleId) || !adjacency.has(edge.to.moduleId)) continue;
     adjacency.get(edge.from.moduleId)?.push(edge.to.moduleId);
     indegree.set(edge.to.moduleId, (indegree.get(edge.to.moduleId) ?? 0) + 1);
   }
@@ -83,7 +84,7 @@ export function compilePatchGraph(patch) {
     };
   });
 
-  const sortedEdges = [...(patch.connections ?? [])].sort((a, b) => a.id.localeCompare(b.id));
+  const sortedEdges = [...(patch.connections ?? [])].filter(edge => edge.enabled !== false && patch.modules?.[edge.from.moduleId]?.enabled !== false && patch.modules?.[edge.to.moduleId]?.enabled !== false).sort((a, b) => a.id.localeCompare(b.id));
   const modulations = [];
   const connections = [];
   for (const edge of sortedEdges) {

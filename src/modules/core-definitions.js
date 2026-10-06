@@ -8,6 +8,11 @@ const audioEffectPorts = () => [input('audioIn', SignalType.AUDIO), output('audi
 
 export const CORE_MODULE_DEFINITIONS = Object.freeze([
   {
+    typeId: 'system.unknown-placeholder', title: 'Unsupported Module', classification: 'SYSTEM',
+    defaultScope: VoiceScope.GLOBAL, allowedScopes: [VoiceScope.VOICE, VoiceScope.GLOBAL, VoiceScope.EFFECT, VoiceScope.UTILITY].filter(Boolean),
+    ports: [], parameters: []
+  },
+  {
     typeId: 'core.note-input', title: 'Note Input', defaultScope: VoiceScope.GLOBAL, allowedScopes: [VoiceScope.GLOBAL],
     ports: [output('pitchOut', SignalType.PITCH, { polyphonic: true }), output('gateOut', SignalType.GATE, { polyphonic: true }), output('velocityOut', SignalType.CONTROL, { polyphonic: true }), output('eventOut', SignalType.EVENT)],
     parameters: [parameter('maxVoices', 1, 32, 8, { curve: 'integer', smoothingMs: 0, modulatable: false }), parameter('transpose', -48, 48, 0, { unit: 'st', smoothingMs: 5 })]

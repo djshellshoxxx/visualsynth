@@ -271,7 +271,7 @@ export class WorkletRuntime {
     if (!oscillator) {
       if (node.type === 'beta.additive-oscillator') {
         const count = Math.round(finite(p.harmonics, 8));
-        oscillator = new AdditiveOscillator({ sampleRate: this.sampleRate, frequency, amplitude: finite(p.amplitude, .25), harmonics: Array.from({ length: count }, (_, i) => 1 / (i + 1) });
+        oscillator = new AdditiveOscillator({ sampleRate: this.sampleRate, frequency, amplitude: finite(p.amplitude, .25), harmonics: Array.from({ length: count }, (_, i) => 1 / (i + 1)) });
       } else if (node.type === 'beta.wavetable-oscillator') {
         oscillator = new WavetableOscillator({ sampleRate: this.sampleRate, frequency, morph: finite(p.morph, 0), amplitude: finite(p.amplitude, .25) });
       } else {
@@ -400,6 +400,25 @@ export class WorkletRuntime {
     }
   }
 
+  // Released voices keep their sources running only long enough for a voice envelope to finish its release.
+  #releaseTailFrames() {
+    if (this.releaseTailCache?.frame === this.processingFrame) return this.releaseTailCache.frames;
+    let seconds = 0;
+    for (const node of this.graph?.nodes ?? []) {
+      if (node.scope !== 'voice') continue;
+      if (node.type === 'beta.mseg') { seconds = Infinity; break; }
+      if (node.type === 'core.adsr') seconds = Math.max(seconds, Math.max(0, finite(node.parameters?.release, .25)));
+    }
+    const frames = Math.ceil(seconds * this.sampleRate);
+    this.releaseTailCache = { frame: this.processingFrame, frames };
+    return frames;
+  }
+
+  #voiceSounding(voice) {
+    if (voice.gate > 0 || voice.releasedFrame == null) return true;
+    return finite(this.processingFrame, 0) - voice.releasedFrame < this.#releaseTailFrames();
+  }
+
   #processSignalNode(node, outputs) {
     const p = node.parameters ?? {};
     const set = (portId, value) => outputs.set(this.#outputKey(node.id, portId), value);
@@ -437,7 +456,7 @@ export class WorkletRuntime {
             + this.#modulationSum(node.id, 'pitch', outputs, voice.voiceId);
           const oscillator = this.#voiceRuntime(node, voice.voiceId, () => new Oscillator({ sampleRate: this.sampleRate, waveform: waveformFrom(p.waveform), frequency: midiNoteToHz(pitch), pulseWidth: finite(p.pulseWidth, .5) }));
           oscillator.setFrequency(midiNoteToHz(pitch)); oscillator.waveform = waveformFrom(p.waveform); oscillator.pulseWidth = Math.max(.01, Math.min(.99, finite(p.pulseWidth, .5)));
-          lanes.push([voice.voiceId, sanitizeSample(oscillator.nextSample() * finite(p.amplitude, .25) * finite(voice.velocity, 1))]);
+          lanes.push([voice.voiceId, this.#voiceSounding(voice) ? sanitizeSample(oscillator.nextSample() * finite(p.amplitude, .25) * finite(voice.velocity, 1)) : 0]);
         }
         const value = this.#voiceBundle(lanes); set('audioOut', value); return 0;
       }
@@ -448,7 +467,7 @@ export class WorkletRuntime {
         const lanes = voices.map(voice => {
           const noise = this.#voiceRuntime(node, voice.voiceId, () => new NoiseGenerator({ seed: voiceSeed(p.seed, voice.voiceId), type: noiseTypeFrom(p.type) }));
           noise.type = noiseTypeFrom(p.type);
-          return [voice.voiceId, sanitizeSample(noise.nextSample() * finite(p.level, .25) * finite(voice.velocity, 1))];
+          return [voice.voiceId, this.#voiceSounding(voice) ? sanitizeSample(noise.nextSample() * finite(p.level, .25) * finite(voice.velocity, 1)) : 0];
         });
         set('audioOut', this.#voiceBundle(lanes)); return 0;
       }

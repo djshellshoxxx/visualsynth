@@ -41,6 +41,7 @@ export class Oscillator {
     this.sampleRate = sampleRate;
     this.waveform = waveform;
     this.phase = wrap01(phase);
+    this.subPhase = wrap01(phase * 0.5);
     this.pulseWidth = clamp(pulseWidth, 0.01, 0.99);
     this.setFrequency(frequency);
   }
@@ -53,6 +54,7 @@ export class Oscillator {
 
   reset(phase = 0) {
     this.phase = wrap01(phase);
+    this.subPhase = wrap01(phase * 0.5);
   }
 
   nextSample() {
@@ -66,12 +68,13 @@ export class Oscillator {
       case 'reverse-saw': value = -sawSample(phase, dt); break;
       case 'square': value = pulseSample(phase, dt, 0.5); break;
       case 'pulse': value = pulseSample(phase, dt, this.pulseWidth); break;
-      case 'sub': value = pulseSample(wrap01(phase * 0.5), dt * 0.5, 0.5); break;
+      case 'sub': value = pulseSample(this.subPhase, dt * 0.5, 0.5); break;
       case 'sine':
       default: value = Math.sin(2 * Math.PI * phase); break;
     }
 
     this.phase = wrap01(phase + dt);
+    this.subPhase = wrap01(this.subPhase + dt * 0.5);
     return sanitizeSample(value);
   }
 

@@ -77,7 +77,8 @@ export class FilterCascade {
     const dry=sanitizeSample(input);
     let processed=Math.tanh(dry*(1+Math.max(0,Number(this.drive)||0)));
     const count=Math.max(1,Math.min(4,Math.round((Number(this.slope)||12)/12)));
-    for(let i=0;i<count;i++) processed=this.stages[i].processSample(processed);
+    // Resonate only the final active stage so cascaded peaks do not compound.
+    for(let i=0;i<count;i++){ this.stages[i].resonance=i===count-1?this.resonance:0; processed=this.stages[i].processSample(processed); }
     const wet=clamp(Number.isFinite(this.wet)?this.wet:1,0,1);
     return sanitizeSample(dry*(1-wet)+processed*wet);
   }

@@ -11,7 +11,7 @@ import { sanitizeSample } from '../dsp/safety.js';
 import { VoiceEngine } from './voice-engine.js';
 import { EngineMessageType, validateEngineMessage } from './protocol.js';
 
-const WAVEFORMS = ['sine', 'triangle', 'saw', 'reverse-saw', 'square', 'pulse', 'sine'];
+const WAVEFORMS = ['sine', 'triangle', 'saw', 'reverse-saw', 'square', 'pulse', 'sub', 'sine'];
 const NOISE_TYPES = ['white', 'pink', 'brown'];
 const FILTER_MODES = ['lowpass', 'highpass', 'bandpass', 'notch'];
 
@@ -73,7 +73,7 @@ export class WorkletRuntime {
       } else if (node.type === 'core.adsr' && node.scope !== 'voice') {
         nextState.set(node.id, { dsp: new ADSREnvelope({ sampleRate: this.sampleRate, attack: finite(p.attack, .01), decay: finite(p.decay, .15), sustain: finite(p.sustain, .7), release: finite(p.release, .25) }), lastGate: 0 });
       } else if (node.type === 'core.lfo' && node.scope !== 'voice') {
-        nextState.set(node.id, new LFO({ sampleRate: this.sampleRate, frequency: finite(p.rate, 1), amount: finite(p.amount, 1) }));
+        nextState.set(node.id, new LFO({ sampleRate: this.sampleRate, waveform: ['sine','triangle','saw','reverse-saw','square','sample-hold','smooth-random','stepped-random'][Math.round(finite(p.waveform,0))] ?? 'sine', frequency: finite(p.rate, 1), amount: finite(p.amount, 1), seed: finite(p.seed,1) }));
       } else if (node.type === 'core.filter') {
         nextState.set(node.id, new StateVariableFilter({ sampleRate: this.sampleRate, cutoff: finite(p.cutoff, 12000), resonance: finite(p.resonance, 0.1), mode: filterModeFrom(p.mode) }));
       } else if (node.type === 'core.distortion') {
@@ -434,7 +434,7 @@ export class WorkletRuntime {
       case 'core.lfo': {
         if (node.scope === 'voice') {
           const lanes = voices.map(voice => {
-            const lfo = this.#voiceRuntime(node, voice.voiceId, () => new LFO({ sampleRate:this.sampleRate, frequency:finite(p.rate,1), amount:finite(p.amount,1) }));
+            const lfo = this.#voiceRuntime(node, voice.voiceId, () => new LFO({ sampleRate:this.sampleRate, waveform:['sine','triangle','saw','reverse-saw','square','sample-hold','smooth-random','stepped-random'][Math.round(finite(p.waveform,0))] ?? 'sine', frequency:finite(p.rate,1), amount:finite(p.amount,1), seed:finite(p.seed,1) }));
             lfo.frequency = Math.max(0, Math.min(this.sampleRate*.499, finite(p.rate,1))); lfo.amount = Math.max(0,Math.min(1,finite(p.amount,1)));
             return [voice.voiceId,lfo.nextSample()];
           });

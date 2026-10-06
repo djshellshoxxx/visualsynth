@@ -3,7 +3,7 @@ import { ADSREnvelope } from '../dsp/envelope.js';
 import { LFO } from '../dsp/lfo.js';
 import { FeedbackDelay } from '../dsp/feedback-delay.js';
 import { NoiseGenerator } from '../dsp/noise.js';
-import { StateVariableFilter } from '../dsp/filters.js';
+import { StateVariableFilter, FilterCascade } from '../dsp/filters.js';
 import { DistortionEffect, DelayEffect, EchoEffect } from '../dsp/effects.js';
 import { AdditiveOscillator, SupersawOscillator, WavetableOscillator } from '../dsp/advanced-oscillators.js';
 import { ChorusEffect, CompressorEffect, ParametricEqEffect, PhaserEffect, ReverbEffect } from '../dsp/beta-effects.js';
@@ -78,7 +78,7 @@ export class WorkletRuntime {
       } else if (node.type === 'core.lfo' && node.scope !== 'voice') {
         nextState.set(node.id, new LFO({ sampleRate: this.sampleRate, waveform: ['sine','triangle','saw','reverse-saw','square','sample-hold','smooth-random','stepped-random'][Math.round(finite(p.waveform,0))] ?? 'sine', frequency: finite(p.rate, 1), amount: finite(p.amount, 1), seed: finite(p.seed,1) }));
       } else if (node.type === 'core.filter') {
-        nextState.set(node.id, new StateVariableFilter({ sampleRate: this.sampleRate, cutoff: finite(p.cutoff, 12000), resonance: finite(p.resonance, 0.1), mode: filterModeFrom(p.mode) }));
+        nextState.set(node.id, new FilterCascade({ sampleRate: this.sampleRate, cutoff: finite(p.cutoff, 12000), resonance: finite(p.resonance, 0.1), mode: filterModeFrom(p.mode), slope: 12 * (Math.round(finite(p.slope,0)) + 1), drive: finite(p.drive,0), wet: finite(p.wet,1) }));
       } else if (node.type === 'core.distortion') {
         nextState.set(node.id, new DistortionEffect({ drive: finite(p.drive, 3), tone: finite(p.tone, 0.65), mix: finite(p.mix, 0.7) }));
       } else if (node.type === 'core.delay') {
@@ -146,10 +146,13 @@ export class WorkletRuntime {
       updateOscillator(state);
     } else if (state instanceof NoiseGenerator) {
       updateNoise(state);
-    } else if (state instanceof StateVariableFilter) {
+    } else if (state instanceof StateVariableFilter || state instanceof FilterCascade) {
       if (parameterId === 'cutoff') state.setCutoff(value);
       if (parameterId === 'resonance') state.setResonance(value);
       if (parameterId === 'mode') state.mode = filterModeFrom(value);
+      if (state instanceof FilterCascade && parameterId === 'slope') state.slope = 12 * (Math.round(value) + 1);
+      if (state instanceof FilterCascade && parameterId === 'drive') state.drive = value;
+      if (state instanceof FilterCascade && parameterId === 'wet') state.wet = value;
     } else if (state instanceof DistortionEffect) {
       if (parameterId === 'drive') state.setDrive(value);
       if (parameterId === 'tone') state.setTone(value);
@@ -481,15 +484,19 @@ export class WorkletRuntime {
         const audio=this.#inputValue(node.id,'audioIn',outputs);
         if(this.#isVoiceBundle(audio)){
           const lanes=[...audio.lanes.entries()].map(([id,input])=>{
-            const filter=this.#voiceRuntime(node,id,()=>new StateVariableFilter({sampleRate:this.sampleRate,cutoff:finite(p.cutoff,12000),resonance:finite(p.resonance,.1),mode:filterModeFrom(p.mode)}));
-            const cutoff=Math.max(20,Math.min(this.sampleRate*.45,finite(p.cutoff,12000)*2**this.#modulationSum(node.id,'cutoff',outputs,id)));
-            filter.setCutoff(cutoff);filter.setResonance(finite(p.resonance,.1));filter.mode=filterModeFrom(p.mode);
-            const drive=Math.max(0,finite(p.drive,0));const driven=drive?Math.tanh(input*(1+drive)):input;return[id,filter.processSample(driven)];
+            const filter=this.#voiceRuntime(node,id,()=>new FilterCascade({sampleRate:this.sampleRate,cutoff:finite(p.cutoff,12000),resonance:finite(p.resonance,.1),mode:filterModeFrom(p.mode),slope:12*(Math.round(finite(p.slope,0))+1),drive:finite(p.drive,0),wet:finite(p.wet,1)}));
+            const voice=voices.find(v=>v.voiceId===id);
+            const keytrack=finite(p.keytracking,0)*(finite(voice?.pitch,60)-60)/12;
+            const cutoff=Math.max(20,Math.min(this.sampleRate*.45,finite(p.cutoff,12000)*2**(this.#modulationSum(node.id,'cutoff',outputs,id)+keytrack)));
+            filter.setCutoff(cutoff);filter.setResonance(finite(p.resonance,.1));filter.mode=filterModeFrom(p.mode);filter.slope=12*(Math.round(finite(p.slope,0))+1);filter.drive=finite(p.drive,0);filter.wet=finite(p.wet,1);
+            return[id,filter.processSample(input)];
           }); set('audioOut',this.#voiceBundle(lanes));return 0;
         }
-        const filter=this.nodeState.get(node.id);if(!(filter instanceof StateVariableFilter)){set('audioOut',0);return 0;}
+        const filter=this.nodeState.get(node.id);if(!(filter instanceof StateVariableFilter || filter instanceof FilterCascade)){set('audioOut',0);return 0;}
         filter.setCutoff(Math.max(20,Math.min(this.sampleRate*.45,finite(p.cutoff,12000)*2**this.#modulationSum(node.id,'cutoff',outputs))));
-        filter.setResonance(finite(p.resonance,.1));filter.mode=filterModeFrom(p.mode);const drive=Math.max(0,finite(p.drive,0));const dry=this.#scalar(audio);const sample=filter.processSample(drive?Math.tanh(dry*(1+drive)):dry);set('audioOut',sample);return sample;
+        filter.setResonance(finite(p.resonance,.1));filter.mode=filterModeFrom(p.mode);
+        if(filter instanceof FilterCascade){filter.slope=12*(Math.round(finite(p.slope,0))+1);filter.drive=finite(p.drive,0);filter.wet=finite(p.wet,1);}
+        const dry=this.#scalar(audio);const sample=filter.processSample(filter instanceof FilterCascade?dry:(finite(p.drive,0)>0?Math.tanh(dry*(1+finite(p.drive,0))):dry));set('audioOut',sample);return sample;
       }
       case 'core.mixer': {
         const inputs=[...this.#inputValues(node.id,'audioInA',outputs),...this.#inputValues(node.id,'audioInB',outputs)];

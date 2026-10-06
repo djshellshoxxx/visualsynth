@@ -32,6 +32,12 @@ export const CORE_MODULE_DEFINITIONS = Object.freeze([
     parameters: [parameter('gain', 0, 2, 0.5, { smoothingMs: 8 })]
   },
   {
+    typeId: 'core.feedback-delay', title: 'Feedback Delay', classification: 'CORE',
+    defaultScope: VoiceScope.GLOBAL, allowedScopes: [VoiceScope.GLOBAL],
+    ports: [input('audioIn', SignalType.AUDIO, { multiple: true }), output('audioOut', SignalType.AUDIO)],
+    parameters: [parameter('samples', 1, 4096, 1, { curve: 'integer', smoothingMs: 0, modulatable: false, unit: 'samples' }), parameter('feedback', -0.98, 0.98, 0.35, { smoothingMs: 8 })]
+  },
+  {
     typeId: 'core.filter', title: 'Multimode Filter', defaultScope: VoiceScope.VOICE, allowedScopes: [VoiceScope.VOICE, VoiceScope.GLOBAL],
     ports: [input('audioIn', SignalType.AUDIO), input('cutoffMod', SignalType.CONTROL, { optional: true, multiple: true }), output('audioOut', SignalType.AUDIO)],
     parameters: [

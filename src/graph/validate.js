@@ -48,6 +48,7 @@ export function validatePatchGraph(patch) {
   }
 
   for (const edge of connections) {
+    if (edge.enabled === false) continue;
     const source = modules[edge.from.moduleId];
     const target = modules[edge.to.moduleId];
     if (!source) {
@@ -58,6 +59,7 @@ export function validatePatchGraph(patch) {
       errors.push(`Connection ${edge.id} references missing target module ${edge.to.moduleId}`);
       continue;
     }
+    if (source.enabled === false || target.enabled === false) continue;
 
     let sourceDefinition;
     let targetDefinition;

@@ -26,6 +26,7 @@ export class NoiseGenerator {
     this.pink1 = 0;
     this.pink2 = 0;
     this.brown = 0;
+    this.lastWhite = 0;
   }
 
   #white() {
@@ -45,6 +46,12 @@ export class NoiseGenerator {
       this.brown = Math.max(-1, Math.min(1, (this.brown + white * 0.02) / 1.02));
       return sanitizeSample(this.brown * 3.5);
     }
+    if (this.type === 'blue') {
+      const blue = (white - this.lastWhite) * 0.5;
+      this.lastWhite = white;
+      return sanitizeSample(blue);
+    }
+    this.lastWhite = white;
     return sanitizeSample(white);
   }
 

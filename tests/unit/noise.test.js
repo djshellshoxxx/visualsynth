@@ -17,7 +17,7 @@ describe('NoiseGenerator', () => {
   });
 
   test('white pink and brown modes remain finite and bounded', () => {
-    for (const type of ['white', 'pink', 'brown']) {
+    for (const type of ['white', 'pink', 'brown', 'blue']) {
       const noise = new NoiseGenerator({ seed: 99, type });
       for (let index = 0; index < 4096; index += 1) {
         const sample = noise.nextSample();

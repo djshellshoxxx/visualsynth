@@ -1,6 +1,7 @@
 import { Oscillator } from '../dsp/oscillator.js';
 import { ADSREnvelope } from '../dsp/envelope.js';
 import { LFO } from '../dsp/lfo.js';
+import { FeedbackDelay } from '../dsp/feedback-delay.js';
 import { NoiseGenerator } from '../dsp/noise.js';
 import { StateVariableFilter } from '../dsp/filters.js';
 import { DistortionEffect, DelayEffect, EchoEffect } from '../dsp/effects.js';
@@ -70,6 +71,8 @@ export class WorkletRuntime {
         nextState.set(node.id, new Oscillator({ sampleRate: this.sampleRate, waveform: waveformFrom(p.waveform), frequency: finite(p.frequency, 220), pulseWidth: finite(p.pulseWidth, 0.5) }));
       } else if (node.type === 'standard.noise' && node.scope !== 'voice') {
         nextState.set(node.id, new NoiseGenerator({ seed: finite(p.seed, 1), type: noiseTypeFrom(p.type) }));
+      } else if (node.type === 'core.feedback-delay') {
+        nextState.set(node.id, new FeedbackDelay({ samples: finite(p.samples, 1), feedback: finite(p.feedback, .35) }));
       } else if (node.type === 'core.adsr' && node.scope !== 'voice') {
         nextState.set(node.id, { dsp: new ADSREnvelope({ sampleRate: this.sampleRate, attack: finite(p.attack, .01), decay: finite(p.decay, .15), sustain: finite(p.sustain, .7), release: finite(p.release, .25) }), lastGate: 0 });
       } else if (node.type === 'core.lfo' && node.scope !== 'voice') {
@@ -461,6 +464,15 @@ export class WorkletRuntime {
         let gain=finite(p.gain,1); if(routes.length) gain*=Math.max(0,this.#modulationSum(node.id,'gain',outputs));
         const sample=applyVca(this.#scalar(audio),gain); set('audioOut',sample); return sample;
       }
+      case 'core.feedback-delay': {
+        const delay = this.nodeState.get(node.id);
+        const input = this.#scalar(this.#inputValue(node.id, 'audioIn', outputs));
+        if (delay instanceof FeedbackDelay) {
+          delay.setSamples(finite(p.samples, 1)); delay.setFeedback(finite(p.feedback, .35)); delay.write(input);
+          return delay.read();
+        }
+        set('audioOut', 0); return 0;
+      }
       case 'core.voice-sum': {
         const audio=this.#inputValue(node.id,'audioIn',outputs);
         const sample=sanitizeSample(this.#scalar(audio)*finite(p.gain,1)); set('audioOut',sample); return sample;
@@ -614,6 +626,12 @@ export class WorkletRuntime {
       const frame = this.currentFrame + i;
       this.voiceEngine.processRange(frame, frame + 1);
       const values = new Map();
+      for (const node of this.graph.nodes) {
+        if (node.type === 'core.feedback-delay') {
+          const delay = this.nodeState.get(node.id);
+          values.set(this.#outputKey(node.id, 'audioOut'), delay instanceof FeedbackDelay ? delay.read() : 0);
+        }
+      }
       let master = 0;
       for (const node of this.graph.nodes) {
         const value = this.#processSignalNode(node, values);

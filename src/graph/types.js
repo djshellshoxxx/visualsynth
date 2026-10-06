@@ -4,7 +4,8 @@ export const SignalType = Object.freeze({
   EVENT: 'event',
   TRIGGER: 'trigger',
   PITCH: 'pitch',
-  GATE: 'gate'
+  GATE: 'gate',
+  CLOCK: 'clock'
 });
 
 export const VoiceScope = Object.freeze({
@@ -28,7 +29,15 @@ export function defineParameter(definition) {
     smoothingMs: definition.smoothingMs ?? 0,
     unit: definition.unit ?? null,
     choices: definition.choices ? [...definition.choices] : undefined,
-    modulatable: definition.modulatable ?? true
+    modulatable: definition.modulatable ?? true,
+    automatable: definition.automatable ?? true,
+    midiMappable: definition.midiMappable ?? true,
+    safeMin: definition.safeMin ?? definition.min ?? 0,
+    safeMax: definition.safeMax ?? definition.max ?? 1,
+    rate: definition.rate ?? 'control',
+    formatter: definition.formatter ?? null,
+    help: definition.help ?? '',
+    educational: definition.educational ?? ''
   };
 
   if (parameter.min > parameter.max) throw new Error(`Invalid parameter range for ${parameter.id}`);

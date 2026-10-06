@@ -44,9 +44,11 @@ describe('module registry', () => {
   test('registers the core module set in deterministic order', () => {
     registerCoreModuleTypes();
     expect(listModuleTypes().map((definition) => definition.typeId)).toEqual([
+      'system.unknown-placeholder',
       'core.note-input',
       'core.oscillator',
       'core.mixer',
+      'core.feedback-delay',
       'core.filter',
       'core.distortion',
       'core.delay',

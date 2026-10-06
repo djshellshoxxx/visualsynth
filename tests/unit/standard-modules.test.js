@@ -18,7 +18,7 @@ describe('standard module definitions', () => {
       expect.objectContaining({ id: 'audioOut', direction: 'output', signalType: 'audio' })
     ]));
     expect(noise.parameters).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'type', choices: ['white', 'pink', 'brown'] }),
+      expect.objectContaining({ id: 'type', choices: ['white', 'pink', 'brown', 'blue'] }),
       expect.objectContaining({ id: 'level', min: 0, max: 1 }),
       expect.objectContaining({ id: 'seed' })
     ]));

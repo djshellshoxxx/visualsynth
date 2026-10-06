@@ -25,6 +25,14 @@ describe('VoiceAllocator', () => {
     expect(allocator.activeVoices().map(v => v.note).sort()).toEqual([62, 64]);
   });
 
+  test('prefers the lower-energy voice before age when all candidates are held', () => {
+    const allocator = new VoiceAllocator({ maxVoices: 2 });
+    allocator.noteOn(60, 1, 10);
+    allocator.noteOn(62, .15, 20);
+    const stolen = allocator.noteOn(64, 1, 30);
+    expect(stolen.stolenNote).toBe(62);
+  });
+
   test('holds note-off voices while sustain is down and releases them when sustain lifts', () => {
     const allocator = new VoiceAllocator({ maxVoices: 4 });
     allocator.noteOn(60, 1, 0);

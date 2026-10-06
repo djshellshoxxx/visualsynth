@@ -31,6 +31,15 @@ describe('Oscillator', () => {
     expect(Number.isFinite(corrected)).toBe(true);
   });
 
+  test('supports a sub oscillator one octave below the requested frequency', () => {
+    const osc = new Oscillator({ sampleRate: 48000, waveform: 'sub', frequency: 440, phase: 0 });
+    const block = osc.renderBlock(4800);
+    let crossings = 0;
+    for (let i = 1; i < block.length; i += 1) if (block[i - 1] <= 0 && block[i] > 0) crossings += 1;
+    expect(crossings).toBeGreaterThanOrEqual(20);
+    expect(crossings).toBeLessThanOrEqual(24);
+  });
+
   test('supports reverse saw and frequency clamping below Nyquist', () => {
     const osc = new Oscillator({ sampleRate: 48000, waveform: 'reverse-saw', frequency: 999999 });
     const block = osc.renderBlock(32);

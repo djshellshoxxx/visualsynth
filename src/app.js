@@ -2,9 +2,11 @@ import { AudioEngine } from './engine/audio-engine.js';
 import { compilePatchGraph } from './graph/compile.js';
 import { ComputerKeyboardInput } from './input/computer-keyboard.js';
 import { PatchStore } from './persistence/patch-store.js';
+import { IndexedPatchLibrary } from './persistence/indexed-patch-library.js';
 import { DiagnosticsView, collectDiagnostics } from './ui/diagnostics-view.js';
 import { KeyboardView } from './ui/keyboard-view.js';
 import { MasterView } from './ui/master-view.js';
+import { BetaToolsView } from './ui/beta-tools-view.js';
 import { WorkspaceController } from './ui/workspace.js';
 import { VisualizationScheduler } from './visual/scheduler.js';
 import { DEFAULT_EXAMPLE_ID, EXAMPLE_PATCHES, INIT_EXAMPLE_ID, getExamplePatch } from './presets/example-patches.js';
@@ -34,6 +36,7 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   const loadButton = document.querySelector('#patch-load');
   const diagnosticsToggle = document.querySelector('#diagnostics-toggle');
   const diagnosticsRoot = document.querySelector('#diagnostics-panel');
+  const betaToolsRoot = document.querySelector('#beta-tools');
   const meter = masterRoot?.querySelector('[role="meter"]');
   const meterFill = meter?.querySelector('span');
   const voicesLabel = document.querySelector('#master-voices');
@@ -85,6 +88,7 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   }
 
   const patchStore = new PatchStore();
+  const patchLibrary = new IndexedPatchLibrary();
 
   const loadPreset = (id, statusPrefix = 'Loaded preset') => {
     if (!workspace) return false;
@@ -100,11 +104,12 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
 
   exampleSelect?.addEventListener('change', () => loadPreset(exampleSelect.value));
   newButton?.addEventListener('click', () => loadPreset(INIT_EXAMPLE_ID, 'New patch'));
-  saveButton?.addEventListener('click', () => {
+  saveButton?.addEventListener('click', async () => {
     if (!workspace) return;
     try {
       patchStore.save(SAVED_PATCH_ID, workspace.patch);
-      recordEvent('save', 'browser patch saved');
+      await patchLibrary.save(SAVED_PATCH_ID, workspace.patch);
+      recordEvent('save', 'IndexedDB patch saved');
       workspace.setStatus('Saved patch in this browser');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -112,10 +117,10 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
       workspace.setStatus(`Could not save patch: ${message}`, 'error');
     }
   });
-  loadButton?.addEventListener('click', () => {
+  loadButton?.addEventListener('click', async () => {
     if (!workspace) return;
     try {
-      const patch = patchStore.load(SAVED_PATCH_ID);
+      const patch = await patchLibrary.load(SAVED_PATCH_ID) ?? patchStore.load(SAVED_PATCH_ID);
       if (!patch) {
         workspace.setStatus('No saved patch found in this browser', 'error');
         return;
@@ -156,6 +161,14 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
     if (voicesLabel) voicesLabel.textContent = String(activeVoices);
     if (peakLabel) peakLabel.textContent = peak.toFixed(2);
   }, 'high');
+
+  const betaToolsView = betaToolsRoot && workspace ? new BetaToolsView({
+    root: betaToolsRoot,
+    workspace,
+    engine,
+    visualizationScheduler,
+    recordEvent
+  }) : null;
 
   const diagnosticsView = diagnosticsRoot ? new DiagnosticsView({
     root: diagnosticsRoot,
@@ -210,14 +223,16 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   shell.visualSynthEngine = engine;
   shell.visualSynthWorkspace = workspace;
   shell.visualSynthPatchStore = patchStore;
+  shell.visualSynthPatchLibrary = patchLibrary;
   shell.visualSynthKeyboard = keyboard;
   shell.visualSynthKeyboardView = keyboardView;
   shell.visualSynthMasterView = masterView;
   shell.visualSynthVisualizationScheduler = visualizationScheduler;
   shell.visualSynthDiagnosticsView = diagnosticsView;
+  shell.visualSynthBetaToolsView = betaToolsView;
   shell.visualSynthLoadExample = loadPreset;
   shell.visualSynthLoadPreset = loadPreset;
-  return { engine, workspace, patchStore, keyboard, keyboardView, masterView, visualizationScheduler, diagnosticsView, loadExample: loadPreset, loadPreset };
+  return { engine, workspace, patchStore, patchLibrary, keyboard, keyboardView, masterView, visualizationScheduler, diagnosticsView, betaToolsView, loadExample: loadPreset, loadPreset };
 }
 
 if (document.readyState === 'loading') {

@@ -61,3 +61,25 @@ export class StateVariableFilter {
     return output;
   }
 }
+
+
+export class FilterCascade {
+  constructor({ sampleRate=48000, cutoff=1000, resonance=0, mode='lowpass', slope=12, drive=0, wet=1 }={}) {
+    this.sampleRate=sampleRate;
+    this.stages=Array.from({length:4},()=>new StateVariableFilter({sampleRate,cutoff,resonance,mode}));
+    this.setCutoff(cutoff); this.setResonance(resonance); this.mode=mode; this.slope=slope; this.drive=drive; this.wet=wet;
+  }
+  setCutoff(value){ this.cutoff=clamp(Number.isFinite(value)?value:20,5,this.sampleRate*.45); for(const stage of this.stages) stage.setCutoff(this.cutoff); }
+  setResonance(value){ this.resonance=clamp(Number.isFinite(value)?value:0,0,1); for(const stage of this.stages) stage.setResonance(this.resonance); }
+  set mode(value){ this._mode=['lowpass','highpass','bandpass','notch'].includes(value)?value:'lowpass'; for(const stage of this.stages) stage.mode=this._mode; }
+  get mode(){ return this._mode; }
+  processSample(input){
+    const dry=sanitizeSample(input);
+    let processed=Math.tanh(dry*(1+Math.max(0,Number(this.drive)||0)));
+    const count=Math.max(1,Math.min(4,Math.round((Number(this.slope)||12)/12)));
+    for(let i=0;i<count;i++) processed=this.stages[i].processSample(processed);
+    const wet=clamp(Number.isFinite(this.wet)?this.wet:1,0,1);
+    return sanitizeSample(dry*(1-wet)+processed*wet);
+  }
+  reset(){ for(const stage of this.stages) stage.reset(); }
+}

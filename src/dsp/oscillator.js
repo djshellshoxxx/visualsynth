@@ -66,6 +66,7 @@ export class Oscillator {
       case 'reverse-saw': value = -sawSample(phase, dt); break;
       case 'square': value = pulseSample(phase, dt, 0.5); break;
       case 'pulse': value = pulseSample(phase, dt, this.pulseWidth); break;
+      case 'sub': value = pulseSample(wrap01(phase * 0.5), dt * 0.5, 0.5); break;
       case 'sine':
       default: value = Math.sin(2 * Math.PI * phase); break;
     }

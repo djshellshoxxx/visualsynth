@@ -27,6 +27,9 @@ export class VoiceAllocator {
     if (this.voices.length >= this.maxVoices) {
       const candidates = [...this.voices].sort((a, b) => {
         if (a.gate !== b.gate) return a.gate ? 1 : -1;
+        const energyA = Math.abs(Number.isFinite(a.energy) ? a.energy : a.velocity ?? 0);
+        const energyB = Math.abs(Number.isFinite(b.energy) ? b.energy : b.velocity ?? 0);
+        if (Math.abs(energyA - energyB) > 0.05) return energyA - energyB;
         return a.startedFrame - b.startedFrame;
       });
       const victim = candidates[0];
@@ -93,6 +96,7 @@ export class VoiceAllocator {
       voiceId,
       note,
       velocity: Math.min(1, Math.max(0, Number.isFinite(velocity) ? velocity : 0)),
+      energy: Math.min(1, Math.max(0, Number.isFinite(velocity) ? velocity : 0)),
       gate: true,
       sustained: false,
       startedFrame: frame,

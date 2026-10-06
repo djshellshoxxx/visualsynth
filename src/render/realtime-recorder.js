@@ -1,0 +1,5 @@
+export class RealtimeRecorder {
+  constructor({context,node,MediaRecorderClass=globalThis.MediaRecorder}={}){ this.context=context;this.node=node;this.MediaRecorderClass=MediaRecorderClass;this.recorder=null;this.chunks=[];this.destination=null; }
+  start(){ if(!this.context?.createMediaStreamDestination||!this.node||typeof this.MediaRecorderClass!=='function') throw new Error('Realtime recording is unavailable'); this.destination=this.context.createMediaStreamDestination();this.node.connect(this.destination);this.chunks=[];this.recorder=new this.MediaRecorderClass(this.destination.stream);this.recorder.ondataavailable=e=>{if(e.data?.size)this.chunks.push(e.data)};this.recorder.start(); }
+  stop(){ return new Promise((resolve,reject)=>{ if(!this.recorder)return reject(new Error('Recorder is not running')); const recorder=this.recorder; recorder.onstop=()=>{ try{this.node.disconnect(this.destination)}catch{} const blob=new Blob(this.chunks,{type:recorder.mimeType||'audio/webm'}); this.recorder=null;resolve(blob); }; recorder.onerror=e=>reject(e.error??new Error('Recording failed'));recorder.stop(); }); }
+}

@@ -2,6 +2,8 @@ import { Oscillator } from '../dsp/oscillator.js';
 import { NoiseGenerator } from '../dsp/noise.js';
 import { StateVariableFilter } from '../dsp/filters.js';
 import { DistortionEffect, DelayEffect, EchoEffect } from '../dsp/effects.js';
+import { AdditiveOscillator, SupersawOscillator, WavetableOscillator } from '../dsp/advanced-oscillators.js';
+import { ChorusEffect, CompressorEffect, ParametricEqEffect, PhaserEffect, ReverbEffect } from '../dsp/beta-effects.js';
 import { applyVca } from '../dsp/vca.js';
 import { sanitizeSample } from '../dsp/safety.js';
 import { VoiceEngine } from './voice-engine.js';
@@ -74,6 +76,23 @@ export class WorkletRuntime {
         nextState.set(node.id, new DelayEffect({ sampleRate: this.sampleRate, time: finite(p.time, 0.25), feedback: finite(p.feedback, 0.3), damping: finite(p.damping, 0.25), mix: finite(p.mix, 0.35) }));
       } else if (node.type === 'core.echo') {
         nextState.set(node.id, new EchoEffect({ sampleRate: this.sampleRate, time: finite(p.time, 0.36), feedback: finite(p.feedback, 0.58), damping: finite(p.damping, 0.42), mix: finite(p.mix, 0.42) }));
+      } else if (node.type === 'beta.additive-oscillator' && node.scope !== 'voice') {
+        const count = Math.round(finite(p.harmonics, 8));
+        nextState.set(node.id, new AdditiveOscillator({ sampleRate: this.sampleRate, frequency: finite(p.frequency, 220), amplitude: finite(p.amplitude, .25), harmonics: Array.from({ length: count }, (_, i) => 1 / ((i + 1) ** Math.max(.05, -finite(p.tilt, -.6)))) }));
+      } else if (node.type === 'beta.wavetable-oscillator' && node.scope !== 'voice') {
+        nextState.set(node.id, new WavetableOscillator({ sampleRate: this.sampleRate, frequency: finite(p.frequency, 220), morph: finite(p.morph, 0), amplitude: finite(p.amplitude, .25) }));
+      } else if (node.type === 'beta.supersaw' && node.scope !== 'voice') {
+        nextState.set(node.id, new SupersawOscillator({ sampleRate: this.sampleRate, frequency: finite(p.frequency, 220), voices: finite(p.voices, 7), detune: finite(p.detune, .18), spread: finite(p.spread, .7), amplitude: finite(p.amplitude, .22) }));
+      } else if (node.type === 'beta.chorus') {
+        nextState.set(node.id, new ChorusEffect({ sampleRate: this.sampleRate, ...p }));
+      } else if (node.type === 'beta.phaser') {
+        nextState.set(node.id, new PhaserEffect({ sampleRate: this.sampleRate, ...p }));
+      } else if (node.type === 'beta.reverb') {
+        nextState.set(node.id, new ReverbEffect({ sampleRate: this.sampleRate, ...p }));
+      } else if (node.type === 'beta.eq') {
+        nextState.set(node.id, new ParametricEqEffect({ sampleRate: this.sampleRate, ...p }));
+      } else if (node.type === 'beta.compressor') {
+        nextState.set(node.id, new CompressorEffect({ sampleRate: this.sampleRate, ...p }));
       }
     }
     this.graph = cloneGraph(graph);
@@ -211,6 +230,41 @@ export class WorkletRuntime {
     return noise;
   }
 
+  #advancedVoiceOscillator(node, signal) {
+    const key = `${node.id}:${signal.voiceId}`;
+    let oscillator = this.voiceNodeState.get(key);
+    const p = node.parameters ?? {};
+    const pitch = signal.pitch + this.#noteTranspose();
+    const frequency = midiNoteToHz(pitch);
+    if (!oscillator) {
+      if (node.type === 'beta.additive-oscillator') {
+        const count = Math.round(finite(p.harmonics, 8));
+        oscillator = new AdditiveOscillator({ sampleRate: this.sampleRate, frequency, amplitude: finite(p.amplitude, .25), harmonics: Array.from({ length: count }, (_, i) => 1 / (i + 1) });
+      } else if (node.type === 'beta.wavetable-oscillator') {
+        oscillator = new WavetableOscillator({ sampleRate: this.sampleRate, frequency, morph: finite(p.morph, 0), amplitude: finite(p.amplitude, .25) });
+      } else {
+        oscillator = new SupersawOscillator({ sampleRate: this.sampleRate, frequency, voices: finite(p.voices, 7), detune: finite(p.detune, .18), spread: finite(p.spread, .7), amplitude: finite(p.amplitude, .22) });
+      }
+      this.voiceNodeState.set(key, oscillator);
+    }
+    oscillator.setFrequency?.(frequency);
+    if ('morph' in oscillator) oscillator.morph = finite(p.morph, oscillator.morph);
+    if ('detune' in oscillator) oscillator.detune = finite(p.detune, oscillator.detune);
+    if ('voices' in oscillator) oscillator.voices = Math.round(finite(p.voices, oscillator.voices));
+    return oscillator;
+  }
+
+  #processAdvancedVoiceOscillator(node) {
+    const activeSignals = this.voiceEngine.voiceSignals().filter(signal => signal.gate > 0);
+    const prefix = `${node.id}:`;
+    const activeKeys = new Set(activeSignals.map(signal => `${prefix}${signal.voiceId}`));
+    for (const key of this.voiceNodeState.keys()) if (key.startsWith(prefix) && !activeKeys.has(key)) this.voiceNodeState.delete(key);
+    if (!activeSignals.length) return 0;
+    let sum = 0;
+    for (const signal of activeSignals) sum += this.#advancedVoiceOscillator(node, signal).nextSample() * finite(signal.velocity, 1);
+    return sanitizeSample(sum / Math.sqrt(activeSignals.length));
+  }
+
   #processVoiceNoise(node) {
     const activeSignals = this.voiceEngine.voiceSignals().filter(signal => signal.gate > 0);
     const prefix = `${node.id}:`;
@@ -240,6 +294,13 @@ export class WorkletRuntime {
         if (!(noise instanceof NoiseGenerator)) return 0;
         return sanitizeSample(noise.nextSample() * Math.max(0, Math.min(1, finite(parameters.level, 0.25))));
       }
+      case 'beta.additive-oscillator':
+      case 'beta.wavetable-oscillator':
+      case 'beta.supersaw': {
+        if (node.scope === 'voice') return this.#processAdvancedVoiceOscillator(node);
+        const oscillator = this.nodeState.get(node.id);
+        return oscillator?.nextSample ? sanitizeSample(oscillator.nextSample()) : 0;
+      }
       case 'core.filter': {
         const filter = this.nodeState.get(node.id);
         const drive = Math.max(0, finite(parameters.drive, 0));
@@ -258,6 +319,25 @@ export class WorkletRuntime {
         const effect = this.nodeState.get(node.id);
         return effect instanceof EchoEffect ? effect.processSample(input) : sanitizeSample(input);
       }
+      case 'beta.chorus':
+      case 'beta.phaser':
+      case 'beta.reverb':
+      case 'beta.eq':
+      case 'beta.compressor': {
+        const effect = this.nodeState.get(node.id);
+        return effect?.processSample ? effect.processSample(input) : sanitizeSample(input);
+      }
+      case 'beta.ring-mod': {
+        const ins = this.#incoming(node.id, values);
+        return sanitizeSample((ins[0] ?? 0) * (ins[1] ?? 0) * finite(parameters.mix, 1) + (ins[0] ?? 0) * (1 - finite(parameters.mix, 1)));
+      }
+      case 'beta.scope-probe':
+      case 'beta.control-probe':
+      case 'beta.stereo-utility': return sanitizeSample(input);
+      case 'beta.envelope-follower': return Math.min(1, Math.abs(sanitizeSample(input)) * finite(parameters.gain, 1));
+      case 'beta.macro': return finite(parameters.value, .5);
+      case 'beta.xy-pad': return finite(parameters.x, .5);
+      case 'beta.voice-reduce': return sanitizeSample(input);
       case 'core.vca': return applyVca(input, finite(parameters.gain, 1));
       case 'core.mixer': return sanitizeSample(input * finite(parameters.gain, 0.5));
       case 'core.master-output': return sanitizeSample(input * finite(parameters.gain, 0.8));

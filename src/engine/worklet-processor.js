@@ -12,7 +12,7 @@ import { ChorusEffect, CompressorEffect, ParametricEqEffect, PhaserEffect, Rever
 import { applyVca } from '../dsp/vca.js';
 import { sanitizeSample } from '../dsp/safety.js';
 import { EnvelopeFollower, reduceVoiceValues, VOICE_REDUCE_MODES } from '../dsp/control-utils.js';
-import { BitCrusher, Comparator, SampleAndHold, SlewLimiter, wavefold } from '../dsp/utility-modules.js';
+import { BitCrusher, ChaosGenerator, LadderFilter, RandomWalk, Comparator, SampleAndHold, SlewLimiter, wavefold } from '../dsp/utility-modules.js';
 import { VoiceEngine } from './voice-engine.js';
 import { EngineMessageType, validateEngineMessage } from './protocol.js';
 
@@ -118,6 +118,12 @@ export class WorkletRuntime {
         let seed = (Math.round(finite(node.state?.seed, 1)) >>> 0) || 1;
         sh.noise = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2147483648 - 1; };
         nextState.set(node.id, sh);
+      } else if (node.type === 'beta.ladder-filter') {
+        nextState.set(node.id, new LadderFilter({ sampleRate: this.sampleRate, ...p }));
+      } else if (node.type === 'beta.random-walk') {
+        nextState.set(node.id, new RandomWalk({ seed: finite(p.seed, 1) }));
+      } else if (node.type === 'beta.chaos') {
+        nextState.set(node.id, new ChaosGenerator({ sampleRate: this.sampleRate, rate: finite(p.rate, 10), r: finite(p.chaos, 3.9), seed: finite(p.seed, 1) }));
       } else if (node.type === 'beta.comparator') {
         nextState.set(node.id, new Comparator());
       } else if (node.type === 'beta.envelope-follower') {
@@ -676,6 +682,19 @@ export class WorkletRuntime {
         // Unpatched source samples deterministic noise so the module works as a random source (spec: S&H / Random).
         const source=connected?this.#scalar(this.#inputValue(node.id,'controlIn',outputs)):(trigger>.5&&sh?.lastTrigger<=.5?sh.noise():0);
         set('controlOut',sh?sanitizeSample(sh.processSample(source,trigger)*finite(p.amount,1)):0);return 0;
+      }
+      case 'beta.ladder-filter': {
+        const ladder=this.nodeState.get(node.id);const audio=this.#scalar(this.#inputValue(node.id,'audioIn',outputs));
+        if(!ladder){set('audioOut',0);return 0;}
+        ladder.set({cutoff:finite(p.cutoff,1200)*2**this.#modulationSum(node.id,'cutoff',outputs),resonance:p.resonance,drive:p.drive});
+        const sample=ladder.processSample(audio);set('audioOut',sample);return sample;
+      }
+      case 'beta.random-walk': {
+        const walk=this.nodeState.get(node.id);const triggers=this.#inputValues(node.id,'triggerIn',outputs);
+        set('controlOut',walk?(triggers.length?walk.processSample(this.#scalar(triggers[0]),p.step):walk.value):0);return 0;
+      }
+      case 'beta.chaos': {
+        const chaos=this.nodeState.get(node.id);if(chaos)chaos.set({rate:p.rate,r:p.chaos});set('controlOut',chaos?chaos.processSample():0);return 0;
       }
       case 'beta.comparator': {
         const comparator=this.nodeState.get(node.id);const value=this.#scalar(this.#inputValue(node.id,'controlIn',outputs));

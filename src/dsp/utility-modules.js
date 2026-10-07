@@ -84,3 +84,76 @@ export class Comparator {
     return { gate: this.state, trigger: this.state === 1 && previous === 0 ? 1 : 0 };
   }
 }
+
+// Four-pole ladder low-pass (Huovilainen-style, tanh per stage) with resonance feedback.
+export class LadderFilter {
+  constructor({ sampleRate = 48000, cutoff = 1000, resonance = 0.3, drive = 1 } = {}) {
+    this.sampleRate = sampleRate;
+    this.stages = [0, 0, 0, 0];
+    this.set({ cutoff, resonance, drive });
+  }
+
+  set({ cutoff, resonance, drive }) {
+    const hz = Math.max(20, Math.min(this.sampleRate * 0.45, finite(cutoff, 1000)));
+    this.g = 1 - Math.exp(-2 * Math.PI * hz / this.sampleRate);
+    this.k = Math.max(0, Math.min(1, finite(resonance, 0.3))) * 3.9;
+    this.drive = Math.max(0.1, Math.min(8, finite(drive, 1)));
+  }
+
+  processSample(input) {
+    const s = this.stages;
+    let x = Math.tanh((finite(input) - this.k * s[3]) * this.drive);
+    for (let i = 0; i < 4; i += 1) {
+      s[i] += this.g * (Math.tanh(x) - Math.tanh(s[i]));
+      x = s[i];
+    }
+    return sanitizeSample(s[3]);
+  }
+}
+
+function lcg(seed) {
+  let state = (Math.round(finite(seed, 1)) >>> 0) || 1;
+  return () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 4294967296; };
+}
+
+// Bounded random walk in [-1, 1], stepping on each trigger (or free-running when unpatched).
+export class RandomWalk {
+  constructor({ seed = 1 } = {}) { this.rand = lcg(seed); this.value = 0; this.lastTrigger = 0; }
+
+  step(stepSize) {
+    this.value = Math.max(-1, Math.min(1, this.value + (this.rand() * 2 - 1) * Math.max(0, finite(stepSize, 0.1))));
+    return this.value;
+  }
+
+  processSample(trigger, stepSize) {
+    const t = finite(trigger);
+    if (t > 0.5 && this.lastTrigger <= 0.5) this.step(stepSize);
+    this.lastTrigger = t;
+    return sanitizeSample(this.value);
+  }
+}
+
+// Logistic-map chaos generator, iterated at `rate` Hz; output scaled to [-1, 1].
+export class ChaosGenerator {
+  constructor({ sampleRate = 48000, rate = 10, r = 3.9, seed = 1 } = {}) {
+    this.sampleRate = sampleRate;
+    this.x = 0.1 + 0.8 * lcg(seed)();
+    this.phase = 0;
+    this.set({ rate, r });
+  }
+
+  set({ rate, r }) {
+    this.rate = Math.max(0.01, Math.min(this.sampleRate / 2, finite(rate, 10)));
+    this.r = Math.max(2.5, Math.min(4, finite(r, 3.9)));
+  }
+
+  processSample() {
+    this.phase += this.rate / this.sampleRate;
+    if (this.phase >= 1) {
+      this.phase -= Math.floor(this.phase);
+      this.x = this.r * this.x * (1 - this.x);
+      if (!(this.x > 1e-6 && this.x < 1 - 1e-6)) this.x = 0.5;
+    }
+    return sanitizeSample(this.x * 2 - 1);
+  }
+}

@@ -86,3 +86,28 @@ describe('utility module runtime', () => {
     expect(Math.max(...block.left.map(Math.abs))).toBeGreaterThan(0);
   });
 });
+
+import { ChaosGenerator, LadderFilter, RandomWalk } from '../../src/dsp/utility-modules.js';
+
+describe('experimental/advanced utilities', () => {
+  test('ladder filter attenuates highs more than lows and stays finite at max resonance', () => {
+    const run = hz => {
+      const f = new LadderFilter({ sampleRate: 48000, cutoff: 500, resonance: 1 });
+      let peak = 0;
+      for (let i = 0; i < 4800; i++) { const y = f.processSample(Math.sin(2 * Math.PI * hz * i / 48000)); expect(Number.isFinite(y)).toBe(true); if (i > 2400) peak = Math.max(peak, Math.abs(y)); }
+      return peak;
+    };
+    expect(run(8000)).toBeLessThan(run(100));
+  });
+  test('random walk is deterministic, bounded and moves on trigger', () => {
+    const a = new RandomWalk({ seed: 5 }), b = new RandomWalk({ seed: 5 });
+    for (let i = 0; i < 200; i++) { const x = a.processSample(i % 2, 0.3); expect(x).toBe(b.processSample(i % 2, 0.3)); expect(Math.abs(x)).toBeLessThanOrEqual(1); }
+    expect(a.value).not.toBe(0);
+  });
+  test('chaos generator is bounded and varies', () => {
+    const c = new ChaosGenerator({ sampleRate: 1000, rate: 100, r: 3.9, seed: 3 });
+    const seen = new Set();
+    for (let i = 0; i < 2000; i++) { const x = c.processSample(); expect(Math.abs(x)).toBeLessThanOrEqual(1); seen.add(x.toFixed(4)); }
+    expect(seen.size).toBeGreaterThan(10);
+  });
+});

@@ -11,6 +11,7 @@ import { AdditiveOscillator, SupersawOscillator, WavetableOscillator } from '../
 import { ChorusEffect, CompressorEffect, ParametricEqEffect, PhaserEffect, ReverbEffect } from '../dsp/beta-effects.js';
 import { applyVca } from '../dsp/vca.js';
 import { sanitizeSample } from '../dsp/safety.js';
+import { stereoUtility } from '../dsp/stereo.js';
 import { EnvelopeFollower, reduceVoiceValues, VOICE_REDUCE_MODES } from '../dsp/control-utils.js';
 import { AudioToControl, ControlToAudio, FunctionGenerator, GenerativeRouter, HarmonicExciter, ProbabilityRouter, SampleDelay, BitCrusher, ChaosGenerator, fmOperator, waveshape, parseExpression, LadderFilter, RandomWalk, Comparator, SampleAndHold, SlewLimiter, wavefold } from '../dsp/utility-modules.js';
 import { VoiceEngine } from './voice-engine.js';
@@ -59,6 +60,7 @@ export class WorkletRuntime {
     this.panicLatched = false;
     this.lastPeak = 0;
     this.masterGain = 1;
+    this.frameRight = 0;
   }
 
   applyGraph(graph, revision = graph?.revision) {
@@ -89,9 +91,9 @@ export class WorkletRuntime {
       } else if (node.type === 'core.distortion') {
         nextState.set(node.id, new DistortionEffect({ drive: finite(p.drive, 3), tone: finite(p.tone, 0.65), mix: finite(p.mix, 0.7) }));
       } else if (node.type === 'core.delay') {
-        nextState.set(node.id, new DelayEffect({ sampleRate: this.sampleRate, time: finite(p.time, 0.25), feedback: finite(p.feedback, 0.3), damping: finite(p.damping, 0.25), mix: finite(p.mix, 0.35) }));
+        nextState.set(node.id, new DelayEffect({ sampleRate: this.sampleRate, time: finite(p.time, 0.25), feedback: finite(p.feedback, 0.3), damping: finite(p.damping, 0.25), mix: finite(p.mix, 0.35), pingPong: Boolean(Math.round(finite(p.pingPong, 0))) }));
       } else if (node.type === 'core.echo') {
-        nextState.set(node.id, new EchoEffect({ sampleRate: this.sampleRate, time: finite(p.time, 0.36), feedback: finite(p.feedback, 0.58), damping: finite(p.damping, 0.42), mix: finite(p.mix, 0.42) }));
+        nextState.set(node.id, new EchoEffect({ sampleRate: this.sampleRate, time: finite(p.time, 0.36), feedback: finite(p.feedback, 0.58), damping: finite(p.damping, 0.42), mix: finite(p.mix, 0.42), pingPong: Boolean(Math.round(finite(p.pingPong, 0))) }));
       } else if (node.type === 'beta.additive-oscillator' && node.scope !== 'voice') {
         const count = Math.round(finite(p.harmonics, 8));
         nextState.set(node.id, new AdditiveOscillator({ sampleRate: this.sampleRate, frequency: finite(p.frequency, 220), amplitude: finite(p.amplitude, .25), harmonics: Array.from({ length: count }, (_, i) => 1 / ((i + 1) ** Math.max(.05, -finite(p.tilt, -.6)))) }));
@@ -209,6 +211,7 @@ export class WorkletRuntime {
       if (parameterId === 'feedback') state.setFeedback(value);
       if (parameterId === 'damping') state.setDamping(value);
       if (parameterId === 'mix') state.setMix(value);
+      if (parameterId === 'pingPong') state.pingPong = Boolean(Math.round(value));
     } else if (state instanceof AdditiveOscillator || state instanceof WavetableOscillator || state instanceof SupersawOscillator) {
       if (parameterId === 'frequency') state.setFrequency(value);
       else if (parameterId in state) state[parameterId] = value;
@@ -377,6 +380,23 @@ export class WorkletRuntime {
       return this.#voiceBundle([...ids].map(id => [id, sanitizeSample(values.reduce((sum, value) => sum + (this.#isVoiceBundle(value) ? finite(value.lanes.get(id), 0) : finite(value, 0)), 0))]));
     }
     return sanitizeSample(values.reduce((sum, value) => sum + finite(value, 0), 0));
+  }
+
+  // Stereo side channel: a node output may also carry a right-channel value under `<module>:<port>:R`.
+  // Outputs without one are mono and implicitly duplicated to both channels, so mono modules are unchanged.
+  #rightKey(moduleId, portId) { return `${moduleId}:${portId}:R`; }
+
+  #stereoInput(nodeId, portId, outputs) {
+    let l = 0, r = 0, any = false;
+    for (const connection of this.graph?.connections ?? []) {
+      if (connection.to?.moduleId !== nodeId || connection.to?.portId !== portId) continue;
+      any = true;
+      const value = outputs.get(this.#outputKey(connection.from.moduleId, connection.from.portId)) ?? 0;
+      const left = this.#scalar(value);
+      const right = outputs.get(this.#rightKey(connection.from.moduleId, connection.from.portId));
+      l += left; r += right === undefined ? left : finite(right, 0);
+    }
+    return any ? { left: sanitizeSample(l), right: sanitizeSample(r) } : { left: 0, right: 0 };
   }
 
   #modulationValues(nodeId, parameterId, outputs) {
@@ -663,10 +683,19 @@ export class WorkletRuntime {
         }
         const osc=this.nodeState.get(node.id);const sample=osc?.nextSample?sanitizeSample(osc.nextSample()):0;set('audioOut',sample);return sample;
       }
-      case 'core.distortion':
       case 'core.delay':
       case 'core.echo':
-      case 'beta.chorus':
+      case 'beta.chorus': {
+        const effect=this.nodeState.get(node.id);
+        const audio=this.#inputValue(node.id,'audioIn',outputs);
+        if(!effect?.processStereo||this.#isVoiceBundle(audio)){
+          const sample=effect?.processSample?effect.processSample(this.#scalar(audio)):sanitizeSample(this.#scalar(audio));set('audioOut',sample);return sample;
+        }
+        const input=this.#stereoInput(node.id,'audioIn',outputs);
+        const out=effect.processStereo(input.left,input.right);
+        set('audioOut',out.left);outputs.set(this.#rightKey(node.id,'audioOut'),out.right);return out.left;
+      }
+      case 'core.distortion':
       case 'beta.phaser':
       case 'beta.reverb':
       case 'beta.eq':
@@ -779,8 +808,18 @@ export class WorkletRuntime {
         const mode=VOICE_REDUCE_MODES[Math.max(0,Math.min(VOICE_REDUCE_MODES.length-1,Math.round(finite(p.mode,0))))];
         set('controlOut',this.#isVoiceBundle(value)?reduceVoiceValues([...value.lanes.values()],mode):finite(value,0));return 0;
       }
-      case 'beta.stereo-utility': { const value=this.#inputValue(node.id,'audioIn',outputs);set('audioOut',value);return this.#scalar(value); }
-      case 'core.master-output': return sanitizeSample(this.#scalar(this.#inputValue(node.id,'audioIn',outputs))*finite(p.gain,.8));
+      case 'beta.stereo-utility': {
+        const input=this.#stereoInput(node.id,'audioIn',outputs);
+        const pan=Math.max(-1,Math.min(1,finite(p.pan,0)+this.#modulationSum(node.id,'pan',outputs)));
+        const width=Math.max(0,finite(p.width,1)+this.#modulationSum(node.id,'width',outputs));
+        const out=stereoUtility(input.left,input.right,{pan,width,mono:Boolean(Math.round(finite(p.mono,0)))});
+        set('audioOut',out.left);outputs.set(this.#rightKey(node.id,'audioOut'),out.right);return out.left;
+      }
+      case 'core.master-output': {
+        const input=this.#stereoInput(node.id,'audioIn',outputs);const gain=finite(p.gain,.8);
+        this.frameRight+=sanitizeSample(input.right*gain);
+        return sanitizeSample(input.left*gain);
+      }
       default: {
         const outputPort=node.ports?.find(port=>port.direction==='output');
         const inputPort=node.ports?.find(port=>port.direction==='input');
@@ -881,14 +920,16 @@ export class WorkletRuntime {
         }
       }
       let master = 0;
+      this.frameRight = 0;
       for (const node of this.graph.nodes) {
         const value = this.#processSignalNode(node, values);
         if (node.type === 'core.master-output') master += value;
       }
-      const sample = sanitizeSample(master * this.masterGain);
-      left[i] = sample;
-      right[i] = sample;
-      peak = Math.max(peak, Math.abs(sample));
+      const sampleL = sanitizeSample(master * this.masterGain);
+      const sampleR = sanitizeSample(this.frameRight * this.masterGain);
+      left[i] = sampleL;
+      right[i] = sampleR;
+      peak = Math.max(peak, Math.abs(sampleL), Math.abs(sampleR));
     }
     this.currentFrame += blockLength;
     this.lastPeak = peak;

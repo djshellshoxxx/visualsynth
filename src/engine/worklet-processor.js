@@ -11,6 +11,7 @@ import { AdditiveOscillator, SupersawOscillator, WavetableOscillator } from '../
 import { ChorusEffect, CompressorEffect, ParametricEqEffect, PhaserEffect, ReverbEffect } from '../dsp/beta-effects.js';
 import { applyVca } from '../dsp/vca.js';
 import { sanitizeSample } from '../dsp/safety.js';
+import { EnvelopeFollower, reduceVoiceValues, VOICE_REDUCE_MODES } from '../dsp/control-utils.js';
 import { VoiceEngine } from './voice-engine.js';
 import { EngineMessageType, validateEngineMessage } from './protocol.js';
 
@@ -107,6 +108,8 @@ export class WorkletRuntime {
         nextState.set(node.id, new ParametricEqEffect({ sampleRate: this.sampleRate, ...p }));
       } else if (node.type === 'beta.compressor') {
         nextState.set(node.id, new CompressorEffect({ sampleRate: this.sampleRate, ...p }));
+      } else if (node.type === 'beta.envelope-follower') {
+        nextState.set(node.id, new EnvelopeFollower({ sampleRate: this.sampleRate, attack: finite(p.attack, .01), release: finite(p.release, .1) }));
       }
     }
     const noteInput = graph.nodes.find(node => node.type === 'core.note-input');
@@ -648,10 +651,18 @@ export class WorkletRuntime {
       }
       case 'beta.scope-probe': { const value=this.#inputValue(node.id,'audioIn',outputs);set('audioOut',value);return this.#scalar(value); }
       case 'beta.control-probe': { const value=this.#inputValue(node.id,'controlIn',outputs);set('controlOut',value);return 0; }
-      case 'beta.envelope-follower': { const value=Math.min(1,Math.abs(this.#scalar(this.#inputValue(node.id,'audioIn',outputs)))*finite(p.gain,1));set('controlOut',value);return 0; }
+      case 'beta.envelope-follower': {
+        const follower=this.nodeState.get(node.id);const input=this.#scalar(this.#inputValue(node.id,'audioIn',outputs));
+        if(!follower?.processSample){set('controlOut',Math.min(1,Math.abs(input)*finite(p.gain,1)));return 0;}
+        follower.setTimes(finite(p.attack,.01),finite(p.release,.1));set('controlOut',Math.min(1,follower.processSample(input)*finite(p.gain,1)));return 0;
+      }
       case 'beta.macro': set('controlOut',finite(p.value,.5));return 0;
       case 'beta.xy-pad': set('xOut',finite(p.x,.5));set('yOut',finite(p.y,.5));return 0;
-      case 'beta.voice-reduce': { const value=this.#inputValue(node.id,'controlIn',outputs);set('controlOut',this.#scalar(value));return 0; }
+      case 'beta.voice-reduce': {
+        const value=this.#inputValue(node.id,'controlIn',outputs);
+        const mode=VOICE_REDUCE_MODES[Math.max(0,Math.min(VOICE_REDUCE_MODES.length-1,Math.round(finite(p.mode,0))))];
+        set('controlOut',this.#isVoiceBundle(value)?reduceVoiceValues([...value.lanes.values()],mode):finite(value,0));return 0;
+      }
       case 'beta.stereo-utility': { const value=this.#inputValue(node.id,'audioIn',outputs);set('audioOut',value);return this.#scalar(value); }
       case 'core.master-output': return sanitizeSample(this.#scalar(this.#inputValue(node.id,'audioIn',outputs))*finite(p.gain,.8));
       default: {

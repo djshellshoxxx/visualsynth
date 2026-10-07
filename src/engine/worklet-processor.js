@@ -12,6 +12,7 @@ import { ChorusEffect, CompressorEffect, ParametricEqEffect, PhaserEffect, Rever
 import { applyVca } from '../dsp/vca.js';
 import { sanitizeSample } from '../dsp/safety.js';
 import { EnvelopeFollower, reduceVoiceValues, VOICE_REDUCE_MODES } from '../dsp/control-utils.js';
+import { BitCrusher, Comparator, SampleAndHold, SlewLimiter, wavefold } from '../dsp/utility-modules.js';
 import { VoiceEngine } from './voice-engine.js';
 import { EngineMessageType, validateEngineMessage } from './protocol.js';
 
@@ -108,6 +109,17 @@ export class WorkletRuntime {
         nextState.set(node.id, new ParametricEqEffect({ sampleRate: this.sampleRate, ...p }));
       } else if (node.type === 'beta.compressor') {
         nextState.set(node.id, new CompressorEffect({ sampleRate: this.sampleRate, ...p }));
+      } else if (node.type === 'beta.bitcrusher') {
+        nextState.set(node.id, new BitCrusher(p));
+      } else if (node.type === 'beta.slew-limiter') {
+        nextState.set(node.id, new SlewLimiter({ sampleRate: this.sampleRate, ...p }));
+      } else if (node.type === 'beta.sample-hold') {
+        const sh = new SampleAndHold();
+        let seed = (Math.round(finite(node.state?.seed, 1)) >>> 0) || 1;
+        sh.noise = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2147483648 - 1; };
+        nextState.set(node.id, sh);
+      } else if (node.type === 'beta.comparator') {
+        nextState.set(node.id, new Comparator());
       } else if (node.type === 'beta.envelope-follower') {
         nextState.set(node.id, new EnvelopeFollower({ sampleRate: this.sampleRate, attack: finite(p.attack, .01), release: finite(p.release, .1) }));
       }
@@ -643,6 +655,32 @@ export class WorkletRuntime {
         const process=value=>{const effect=this.nodeState.get(node.id);return effect?.processSample?effect.processSample(value):sanitizeSample(value)};
         if(this.#isVoiceBundle(audio)){const lanes=[...audio.lanes].map(([id,v])=>[id,process(v)]);set('audioOut',this.#voiceBundle(lanes));return 0;}
         const sample=process(this.#scalar(audio));set('audioOut',sample);return sample;
+      }
+      case 'beta.wavefolder':
+      case 'beta.bitcrusher': {
+        const audio=this.#inputValue(node.id,'audioIn',outputs);
+        const process=value=>{
+          if(node.type==='beta.bitcrusher'){const crusher=this.nodeState.get(node.id);if(!crusher)return sanitizeSample(value);crusher.set(p);return crusher.processSample(value);}
+          const mix=Math.max(0,Math.min(1,finite(p.mix,1)));return sanitizeSample(value*(1-mix)+wavefold(value,finite(p.drive,2),finite(p.symmetry,0))*mix);
+        };
+        if(this.#isVoiceBundle(audio)){set('audioOut',this.#voiceBundle([...audio.lanes].map(([id,v])=>[id,process(v)])));return 0;}
+        const sample=process(this.#scalar(audio));set('audioOut',sample);return sample;
+      }
+      case 'beta.slew-limiter': {
+        const slew=this.nodeState.get(node.id);const value=this.#scalar(this.#inputValue(node.id,'controlIn',outputs));
+        if(!slew){set('controlOut',value);return 0;}slew.set(p);set('controlOut',slew.processSample(value));return 0;
+      }
+      case 'beta.sample-hold': {
+        const sh=this.nodeState.get(node.id);const trigger=this.#scalar(this.#inputValue(node.id,'triggerIn',outputs));
+        const connected=this.#inputValues(node.id,'controlIn',outputs).length>0;
+        // Unpatched source samples deterministic noise so the module works as a random source (spec: S&H / Random).
+        const source=connected?this.#scalar(this.#inputValue(node.id,'controlIn',outputs)):(trigger>.5&&sh?.lastTrigger<=.5?sh.noise():0);
+        set('controlOut',sh?sanitizeSample(sh.processSample(source,trigger)*finite(p.amount,1)):0);return 0;
+      }
+      case 'beta.comparator': {
+        const comparator=this.nodeState.get(node.id);const value=this.#scalar(this.#inputValue(node.id,'controlIn',outputs));
+        const out=comparator?comparator.processSample(value,finite(p.threshold,0),finite(p.hysteresis,.02)):{gate:0,trigger:0};
+        set('gateOut',out.gate);set('triggerOut',out.trigger);return 0;
       }
       case 'beta.ring-mod': {
         const a=this.#inputValue(node.id,'audioInA',outputs), b=this.#inputValue(node.id,'audioInB',outputs), mix=Math.max(0,Math.min(1,finite(p.mix,1)));

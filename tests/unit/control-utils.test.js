@@ -38,3 +38,51 @@ describe('runtime wiring', () => {
     expect(Array.from(block.left).every(Number.isFinite)).toBe(true);
   });
 });
+
+import { BitCrusher, Comparator, SampleAndHold, SlewLimiter, wavefold } from '../../src/dsp/utility-modules.js';
+
+describe('utility modules DSP', () => {
+  test('wavefold stays in range and folds past 1', () => {
+    for (let i = -50; i <= 50; i++) expect(Math.abs(wavefold(i / 10, 4))).toBeLessThanOrEqual(1);
+    expect(wavefold(0.5, 1)).toBeCloseTo(0.5);
+    expect(wavefold(1.5, 1)).toBeCloseTo(0.5);
+  });
+  test('bit crusher quantizes and holds', () => {
+    const c = new BitCrusher({ bits: 2, downsample: 2 });
+    const a = c.processSample(0.4), b = c.processSample(-0.9);
+    expect(b).toBe(a);
+    expect([0, 0.5, 1, -0.5, -1]).toContain(a);
+  });
+  test('slew limiter rate-limits', () => {
+    const s = new SlewLimiter({ sampleRate: 100, rise: 1, fall: 1 });
+    s.processSample(0);
+    expect(s.processSample(1)).toBeCloseTo(0.01);
+  });
+  test('sample and hold samples on rising edge only', () => {
+    const sh = new SampleAndHold();
+    expect(sh.processSample(0.3, 1)).toBe(0.3);
+    expect(sh.processSample(0.9, 1)).toBe(0.3);
+    sh.processSample(0.9, 0);
+    expect(sh.processSample(0.9, 1)).toBe(0.9);
+  });
+  test('comparator hysteresis and trigger', () => {
+    const c = new Comparator();
+    expect(c.processSample(0.5, 0, 0.1)).toEqual({ gate: 1, trigger: 1 });
+    expect(c.processSample(0.05, 0, 0.1)).toEqual({ gate: 1, trigger: 0 });
+    expect(c.processSample(-0.5, 0, 0.1)).toEqual({ gate: 0, trigger: 0 });
+  });
+});
+
+describe('utility module runtime', () => {
+  beforeEach(() => { clearModuleRegistry(); registerCoreModuleTypes(); registerBetaModuleTypes(); });
+  test.each(['beta.wavefolder', 'beta.bitcrusher'])('%s processes audio through the graph', type => {
+    const mod = (id, t, parameters = {}) => ({ id, type: t, scope: 'global', moduleVersion: 1, position: { x: 0, y: 0 }, parameters });
+    const modules = [mod('osc', 'core.oscillator', { waveform: 0, amplitude: 0.8 }), mod('fx', type, { drive: 6, bits: 3 }), mod('master', 'core.master-output')];
+    const patch = { formatVersion: 1, name: 't', modules: Object.fromEntries(modules.map(m => [m.id, m])), connections: [{ id: 'a', from: { moduleId: 'osc', portId: 'audioOut' }, to: { moduleId: 'fx', portId: 'audioIn' } }, { id: 'b', from: { moduleId: 'fx', portId: 'audioOut' }, to: { moduleId: 'master', portId: 'audioIn' } }], settings: {} };
+    const runtime = new WorkletRuntime({ sampleRate: 48000 });
+    runtime.applyGraph({ ...compilePatchGraph(patch), revision: 1 }, 1);
+    const block = runtime.processBlock(512);
+    expect(Array.from(block.left).every(Number.isFinite)).toBe(true);
+    expect(Math.max(...block.left.map(Math.abs))).toBeGreaterThan(0);
+  });
+});

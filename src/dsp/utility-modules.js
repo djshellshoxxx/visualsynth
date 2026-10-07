@@ -427,3 +427,72 @@ export class GenerativeRouter {
     return out;
   }
 }
+
+// Spectral analyzer: collects a block of samples, runs a radix-2 FFT and exposes band energies + centroid (all 0..1).
+export function fftMagnitudes(samples) {
+  const n = samples.length, re = Float64Array.from(samples), im = new Float64Array(n);
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len;
+    for (let i = 0; i < n; i += len) {
+      for (let k = 0; k < len / 2; k++) {
+        const wr = Math.cos(ang * k), wi = Math.sin(ang * k), a = i + k, b = a + len / 2;
+        const xr = re[b] * wr - im[b] * wi, xi = re[b] * wi + im[b] * wr;
+        re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+      }
+    }
+  }
+  const mags = new Float64Array(n / 2);
+  for (let i = 0; i < n / 2; i++) mags[i] = Math.hypot(re[i], im[i]) * 2 / n;
+  return mags;
+}
+
+export const SPECTRAL_BANDS_HZ = Object.freeze([250, 2000]);
+export class SpectralAnalyzer {
+  constructor({ sampleRate = 48000, size = 512 } = {}) {
+    this.sampleRate = sampleRate;
+    this.size = [128, 256, 512, 1024, 2048].includes(size) ? size : 512;
+    this.buffer = new Float64Array(this.size); this.index = 0;
+    this.window = Float64Array.from({ length: this.size }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / this.size));
+    this.result = { low: 0, mid: 0, high: 0, centroid: 0 };
+  }
+
+  analyze(block) {
+    const mags = fftMagnitudes(Float64Array.from(block, (v, i) => finite(v) * this.window[i]));
+    const hzPerBin = this.sampleRate / this.size, nyquist = this.sampleRate / 2;
+    const bands = [0, 0, 0]; let total = 0, weighted = 0;
+    for (let i = 1; i < mags.length; i++) {
+      const hz = i * hzPerBin, e = mags[i] * mags[i];
+      bands[hz < SPECTRAL_BANDS_HZ[0] ? 0 : hz < SPECTRAL_BANDS_HZ[1] ? 1 : 2] += e;
+      total += e; weighted += e * hz;
+    }
+    const norm = 1;
+    this.result = { low: Math.min(norm, Math.sqrt(bands[0] * 2)), mid: Math.min(norm, Math.sqrt(bands[1] * 2)), high: Math.min(norm, Math.sqrt(bands[2] * 2)), centroid: total > 1e-12 ? weighted / total / nyquist : 0 };
+    return this.result;
+  }
+
+  processSample(sample) {
+    this.buffer[this.index++] = finite(sample);
+    if (this.index >= this.size) { this.index = 0; this.analyze(this.buffer); }
+    return this.result;
+  }
+}
+
+// Phase interference lab: N internal sine sources with ratio/phase(cycles)/gain, summed.
+export class PhaseInterference {
+  constructor({ sampleRate = 48000, sources = 3 } = {}) { this.sampleRate = sampleRate; this.count = sources; this.phase = new Array(sources).fill(0); }
+  processSample({ frequency = 220, ratios = [], phases = [], gains = [] } = {}) {
+    let sum = 0;
+    for (let i = 0; i < this.count; i++) {
+      const ratio = finite(ratios[i], 1), gain = finite(gains[i], i === 0 ? 1 : 0.5);
+      sum += gain * Math.sin(2 * Math.PI * (this.phase[i] + finite(phases[i], 0)));
+      this.phase[i] = (this.phase[i] + Math.max(0, finite(frequency, 220)) * ratio / this.sampleRate) % 1;
+    }
+    return sanitizeSample(sum / this.count);
+  }
+}

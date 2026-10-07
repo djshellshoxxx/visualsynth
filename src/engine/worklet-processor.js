@@ -13,7 +13,7 @@ import { applyVca } from '../dsp/vca.js';
 import { sanitizeSample } from '../dsp/safety.js';
 import { stereoUtility } from '../dsp/stereo.js';
 import { EnvelopeFollower, reduceVoiceValues, VOICE_REDUCE_MODES } from '../dsp/control-utils.js';
-import { AudioToControl, ControlToAudio, FunctionGenerator, GenerativeRouter, HarmonicExciter, ProbabilityRouter, SampleDelay, BitCrusher, ChaosGenerator, fmOperator, waveshape, parseExpression, LadderFilter, RandomWalk, Comparator, SampleAndHold, SlewLimiter, wavefold } from '../dsp/utility-modules.js';
+import { AudioToControl, ControlToAudio, FunctionGenerator, GenerativeRouter, HarmonicExciter, ProbabilityRouter, SampleDelay, BitCrusher, ChaosGenerator, fmOperator, waveshape, parseExpression, LadderFilter, RandomWalk, Comparator, SampleAndHold, SlewLimiter, wavefold, SpectralAnalyzer, PhaseInterference } from '../dsp/utility-modules.js';
 import { VoiceEngine } from './voice-engine.js';
 import { EngineMessageType, validateEngineMessage } from './protocol.js';
 
@@ -136,6 +136,10 @@ export class WorkletRuntime {
         nextState.set(node.id, new AudioToControl({ sampleRate: this.sampleRate, mode: finite(p.mode, 3), rate: finite(p.rate, 100) }));
       } else if (node.type === 'beta.control-to-audio') {
         nextState.set(node.id, new ControlToAudio({ sampleRate: this.sampleRate, smoothing: finite(p.smoothing, .005) }));
+      } else if (node.type === 'beta.spectral-analyzer') {
+        nextState.set(node.id, new SpectralAnalyzer({ sampleRate: this.sampleRate, size: Math.round(finite(p.size, 512)) }));
+      } else if (node.type === 'beta.phase-interference') {
+        nextState.set(node.id, new PhaseInterference({ sampleRate: this.sampleRate, sources: 3 }));
       } else if (node.type === 'beta.sample-delay') {
         nextState.set(node.id, new SampleDelay({ delay: finite(p.delay, 0) }));
       } else if (node.type === 'beta.harmonic-exciter') {
@@ -778,6 +782,15 @@ export class WorkletRuntime {
       case 'beta.control-to-audio': {
         const conv=this.nodeState.get(node.id);const value=this.#scalar(this.#inputValue(node.id,'controlIn',outputs));
         if(conv)conv.set({smoothing:p.smoothing});const sample=sanitizeSample((conv?conv.processSample(value):value)*finite(p.gain,1));set('audioOut',sample);return sample;
+      }
+      case 'beta.spectral-analyzer': {
+        const an=this.nodeState.get(node.id);const r=an?an.processSample(this.#scalar(this.#inputValue(node.id,'audioIn',outputs))):{low:0,mid:0,high:0,centroid:0};
+        set('lowOut',r.low);set('midOut',r.mid);set('highOut',r.high);set('centroidOut',r.centroid);return 0;
+      }
+      case 'beta.patch-mutation': { set('triggerOut',0);return 0; } // mutations are planned on the main thread as PatchCommands
+      case 'beta.phase-interference': {
+        const lab=this.nodeState.get(node.id);if(!lab){set('audioOut',0);return 0;}
+        const sample=lab.processSample({frequency:p.frequency,ratios:[p.ratio1,p.ratio2,p.ratio3],phases:[p.phase1,p.phase2,p.phase3],gains:[p.gain1,p.gain2,p.gain3]});set('audioOut',sample);return sample;
       }
       case 'beta.sample-delay': {
         const delay=this.nodeState.get(node.id);const value=this.#scalar(this.#inputValue(node.id,'audioIn',outputs));

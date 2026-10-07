@@ -15,7 +15,8 @@ export class DistortionEffect {
 }
 
 export class DelayEffect {
-  constructor({ sampleRate = 48000, time = 0.25, feedback = 0.3, mix = 0.35, damping = 0.25 } = {}) {
+  constructor({ sampleRate = 48000, time = 0.25, feedback = 0.3, mix = 0.35, damping = 0.25, pingPong = false } = {}) {
+    this.pingPong = Boolean(pingPong); this.bufferR = null; this.filteredFeedbackR = 0; this.twin = null; this.stereoOut = { left: 0, right: 0 };
     this.sampleRate = sampleRate; this.buffer = new Float32Array(Math.ceil(sampleRate * 2.05)); this.writeIndex = 0; this.filteredFeedback = 0;
     this.setTime(time); this.setFeedback(feedback); this.setMix(mix); this.setDamping(damping);
   }
@@ -32,6 +33,34 @@ export class DelayEffect {
     this.buffer[this.writeIndex] = sanitizeSample(dry + this.filteredFeedback * this.feedback);
     this.writeIndex = (this.writeIndex + 1) % this.buffer.length;
     return sanitizeSample(dry * (1 - this.mix) + delayed * this.mix);
+  }
+  // Stereo processing. Ping-pong: mono-summed input feeds the left line, each line feeds the other,
+  // so repeats alternate L, R, L... Otherwise channels are delayed independently (R via a twin line).
+  processStereo(inL, inR) {
+    const out = this.stereoOut;
+    if (!this.pingPong) {
+      out.left = this.processSample(inL);
+      if (inR === inL && !this.twin) { out.right = out.left; return out; }
+      if (!this.twin) this.twin = new DelayEffect({ sampleRate: this.sampleRate });
+      const t = this.twin; t.time = this.time; t.feedback = this.feedback; t.mix = this.mix; t.damping = this.damping;
+      out.right = t.processSample(inR);
+      return out;
+    }
+    this.bufferR ??= new Float32Array(this.buffer.length);
+    const dryL = sanitizeSample(inL), dryR = sanitizeSample(inR), mono = (dryL + dryR) * 0.5;
+    const n = this.buffer.length;
+    const delaySamples = Math.max(1, Math.min(n - 1, Math.round(this.time * this.sampleRate)));
+    const readIndex = (this.writeIndex - delaySamples + n) % n;
+    const delayedL = this.buffer[readIndex], delayedR = this.bufferR[readIndex];
+    const k = 1 - this.damping * 0.96;
+    this.filteredFeedback += (delayedL - this.filteredFeedback) * k;
+    this.filteredFeedbackR += (delayedR - this.filteredFeedbackR) * k;
+    this.buffer[this.writeIndex] = sanitizeSample(mono + this.filteredFeedbackR * this.feedback);
+    this.bufferR[this.writeIndex] = sanitizeSample(this.filteredFeedback * this.feedback);
+    this.writeIndex = (this.writeIndex + 1) % n;
+    out.left = sanitizeSample(dryL * (1 - this.mix) + delayedL * this.mix);
+    out.right = sanitizeSample(dryR * (1 - this.mix) + delayedR * this.mix);
+    return out;
   }
 }
 

@@ -11,7 +11,9 @@ class FractionalDelay {
 }
 
 export class ChorusEffect {
-  constructor({sampleRate=48000,rate=.35,depth=.45,feedback=.12,mix=.35}={}){ this.sampleRate=sampleRate;this.rate=rate;this.depth=depth;this.feedback=feedback;this.mix=mix;this.phase=0;this.delay=new FractionalDelay(Math.ceil(sampleRate*.08)); }
+  constructor({sampleRate=48000,rate=.35,depth=.45,feedback=.12,mix=.35}={}){ this.sampleRate=sampleRate;this.rate=rate;this.depth=depth;this.feedback=feedback;this.mix=mix;this.phase=0;this.delay=new FractionalDelay(Math.ceil(sampleRate*.08));this.delayR=null;this.stereoOut={left:0,right:0}; }
+  // Stereo chorus: right channel uses its own line with the LFO half a cycle out of phase; left matches processSample.
+  processStereo(inL,inR){ const out=this.stereoOut; const dryL=sanitizeSample(inL), dryR=sanitizeSample(inR); this.delayR??=new FractionalDelay(this.delay.buffer.length); const base=.012*this.sampleRate, span=.009*this.sampleRate*clamp(this.depth,0,1), fb=clamp(this.feedback,-.85,.85); const dL=base+span*(.5+.5*Math.sin(TAU*this.phase)), dR=base+span*(.5+.5*Math.sin(TAU*(this.phase+.5))); const wetL=this.delay.read(dL), wetR=this.delayR.read(dR); this.delay.write(dryL+wetL*fb); this.delayR.write(dryR+wetR*fb); this.phase=(this.phase+clamp(this.rate,.02,8)/this.sampleRate)%1; out.left=equalPower(dryL,wetL,this.mix); out.right=equalPower(dryR,wetR,this.mix); return out; }
   processSample(input){ const dry=sanitizeSample(input), base=.012*this.sampleRate, span=.009*this.sampleRate*clamp(this.depth,0,1), d=base+span*(.5+.5*Math.sin(TAU*this.phase)); const wet=this.delay.read(d); this.delay.write(dry+wet*clamp(this.feedback,-.85,.85)); this.phase=(this.phase+clamp(this.rate,.02,8)/this.sampleRate)%1; return equalPower(dry,wet,this.mix); }
 }
 export class PhaserEffect {

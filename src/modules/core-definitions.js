@@ -51,11 +51,11 @@ export const CORE_MODULE_DEFINITIONS = Object.freeze([
   },
   {
     typeId: 'core.delay', title: 'Delay', defaultScope: VoiceScope.GLOBAL, allowedScopes: [VoiceScope.GLOBAL], ports: audioEffectPorts(),
-    parameters: [parameter('time', 0.005, 2, 0.25, { curve: 'log', unit: 's', smoothingMs: 8 }), parameter('feedback', 0, 0.92, 0.3, { smoothingMs: 8 }), parameter('damping', 0, 1, 0.25, { smoothingMs: 8 }), parameter('mix', 0, 1, 0.35, { smoothingMs: 8 })]
+    parameters: [parameter('time', 0.005, 2, 0.25, { curve: 'log', unit: 's', smoothingMs: 8 }), parameter('feedback', 0, 0.92, 0.3, { smoothingMs: 8 }), parameter('damping', 0, 1, 0.25, { smoothingMs: 8 }), parameter('mix', 0, 1, 0.35, { smoothingMs: 8 }), parameter('pingPong', 0, 1, 0, { curve: 'choice', choices: ['off', 'on'], smoothingMs: 0, modulatable: false })]
   },
   {
     typeId: 'core.echo', title: 'Echo', defaultScope: VoiceScope.GLOBAL, allowedScopes: [VoiceScope.GLOBAL], ports: audioEffectPorts(),
-    parameters: [parameter('time', 0.02, 2, 0.36, { curve: 'log', unit: 's', smoothingMs: 8 }), parameter('feedback', 0, 0.92, 0.58, { smoothingMs: 8 }), parameter('damping', 0, 1, 0.42, { smoothingMs: 8 }), parameter('mix', 0, 1, 0.42, { smoothingMs: 8 })]
+    parameters: [parameter('time', 0.02, 2, 0.36, { curve: 'log', unit: 's', smoothingMs: 8 }), parameter('feedback', 0, 0.92, 0.58, { smoothingMs: 8 }), parameter('damping', 0, 1, 0.42, { smoothingMs: 8 }), parameter('mix', 0, 1, 0.42, { smoothingMs: 8 }), parameter('pingPong', 0, 1, 0, { curve: 'choice', choices: ['off', 'on'], smoothingMs: 0, modulatable: false })]
   },
   {
     typeId: 'core.adsr', title: 'ADSR', defaultScope: VoiceScope.VOICE, allowedScopes: [VoiceScope.VOICE, VoiceScope.GLOBAL],

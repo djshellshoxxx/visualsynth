@@ -3,7 +3,10 @@ import { test, expect } from '@playwright/test';
 const PRESET_IDS = [
   'basic-saw', 'warm-analog', 'sub-bass', 'reese-bass', 'pluck', 'soft-pad', 'acid-bass', 'pulse-lead', 'bright-lead',
   'deep-house-bass', 'detuned-saw', 'chip-lead', 'organ', 'drone', 'filtered-square', 'highpass-lead', 'bandpass-radio',
-  'distorted-bass', 'crunch-lead', 'slap-delay-lead', 'dub-echo', 'space-pad', 'industrial-pulse', 'init-patch'
+  'distorted-bass', 'crunch-lead', 'slap-delay-lead', 'dub-echo', 'space-pad', 'industrial-pulse',
+  'tape-echo-lead', 'saturated-pad', 'highpass-delay-pluck', 'bandpass-echo-keys', 'distorted-pulse-bass',
+  'ambient-echo-drone', 'dual-delay-saw', 'feedback-space-lead', 'white-noise-hit', 'pink-noise-air', 'brown-noise-rumble',
+  'filtered-noise-sweep', 'init-patch'
 ];
 
 test('opens with a simple playable starter patch and wiring guidance', async ({ page }) => {
@@ -16,7 +19,7 @@ test('opens with a simple playable starter patch and wiring guidance', async ({ 
   await expect(page.locator('#wiring-guide')).toContainText(/saw oscillator/i);
 });
 
-test('exposes 24 one-click quick setup configurations', async ({ page }) => {
+test('exposes 36 one-click quick setup configurations', async ({ page }) => {
   await page.goto('./');
   const presets = page.locator('#example-patch');
   await expect(page.locator('.example-picker')).toContainText('Quick Setup');
@@ -40,6 +43,15 @@ test('effect presets expose real distortion delay and echo modules', async ({ pa
   await expect(page.locator('.module-card[data-module-type="core.delay"]')).toHaveCount(1);
   await presets.selectOption('dub-echo');
   await expect(page.locator('.module-card[data-module-type="core.echo"]')).toHaveCount(1);
+});
+
+test('noise presets expose the real standard noise generator', async ({ page }) => {
+  await page.goto('./');
+  const presets = page.locator('#example-patch');
+  for (const id of ['white-noise-hit', 'pink-noise-air', 'brown-noise-rumble', 'filtered-noise-sweep']) {
+    await presets.selectOption(id);
+    await expect(page.locator('.module-card[data-module-type="standard.noise"]')).toHaveCount(1);
+  }
 });
 
 test('New loads the clean init patch instead of silently restoring the demo preset', async ({ page }) => {

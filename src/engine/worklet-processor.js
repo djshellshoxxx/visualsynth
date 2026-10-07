@@ -12,7 +12,7 @@ import { ChorusEffect, CompressorEffect, ParametricEqEffect, PhaserEffect, Rever
 import { applyVca } from '../dsp/vca.js';
 import { sanitizeSample } from '../dsp/safety.js';
 import { EnvelopeFollower, reduceVoiceValues, VOICE_REDUCE_MODES } from '../dsp/control-utils.js';
-import { BitCrusher, ChaosGenerator, LadderFilter, RandomWalk, Comparator, SampleAndHold, SlewLimiter, wavefold } from '../dsp/utility-modules.js';
+import { AudioToControl, ControlToAudio, FunctionGenerator, GenerativeRouter, HarmonicExciter, ProbabilityRouter, SampleDelay, BitCrusher, ChaosGenerator, fmOperator, waveshape, parseExpression, LadderFilter, RandomWalk, Comparator, SampleAndHold, SlewLimiter, wavefold } from '../dsp/utility-modules.js';
 import { VoiceEngine } from './voice-engine.js';
 import { EngineMessageType, validateEngineMessage } from './protocol.js';
 
@@ -124,6 +124,20 @@ export class WorkletRuntime {
         nextState.set(node.id, new RandomWalk({ seed: finite(p.seed, 1) }));
       } else if (node.type === 'beta.chaos') {
         nextState.set(node.id, new ChaosGenerator({ sampleRate: this.sampleRate, rate: finite(p.rate, 10), r: finite(p.chaos, 3.9), seed: finite(p.seed, 1) }));
+      } else if (node.type === 'beta.probability-router') {
+        nextState.set(node.id, new ProbabilityRouter({ seed: finite(p.seed, 1), outputs: 4 }));
+      } else if (node.type === 'beta.event-router') {
+        nextState.set(node.id, new GenerativeRouter({ seed: finite(p.seed, 1), outputs: 3 }));
+      } else if (node.type === 'beta.function-generator') {
+        nextState.set(node.id, new FunctionGenerator({ sampleRate: this.sampleRate, frequency: finite(p.frequency, 1), ast: node.state?.ast ?? (typeof node.state?.expression === 'string' ? parseExpression(node.state.expression) : null) }));
+      } else if (node.type === 'beta.audio-to-control') {
+        nextState.set(node.id, new AudioToControl({ sampleRate: this.sampleRate, mode: finite(p.mode, 3), rate: finite(p.rate, 100) }));
+      } else if (node.type === 'beta.control-to-audio') {
+        nextState.set(node.id, new ControlToAudio({ sampleRate: this.sampleRate, smoothing: finite(p.smoothing, .005) }));
+      } else if (node.type === 'beta.sample-delay') {
+        nextState.set(node.id, new SampleDelay({ delay: finite(p.delay, 0) }));
+      } else if (node.type === 'beta.harmonic-exciter') {
+        nextState.set(node.id, new HarmonicExciter({ sampleRate: this.sampleRate, ...p }));
       } else if (node.type === 'beta.comparator') {
         nextState.set(node.id, new Comparator());
       } else if (node.type === 'beta.envelope-follower') {
@@ -700,6 +714,51 @@ export class WorkletRuntime {
         const comparator=this.nodeState.get(node.id);const value=this.#scalar(this.#inputValue(node.id,'controlIn',outputs));
         const out=comparator?comparator.processSample(value,finite(p.threshold,0),finite(p.hysteresis,.02)):{gate:0,trigger:0};
         set('gateOut',out.gate);set('triggerOut',out.trigger);return 0;
+      }
+      case 'beta.fm-operator': {
+        const mod=this.#scalar(this.#inputValue(node.id,'modIn',outputs));
+        set('controlOut',fmOperator(mod,p.mode,finite(p.depth,.25),finite(p.bias,0),finite(p.polarity,1)));return 0;
+      }
+      case 'beta.waveshaper': {
+        const audio=this.#inputValue(node.id,'audioIn',outputs);const mix=Math.max(0,Math.min(1,finite(p.mix,1)));
+        const driveMod=this.#inputValues(node.id,'driveIn',outputs).length?this.#scalar(this.#inputValue(node.id,'driveIn',outputs)):0;
+        const drive=Math.max(0,finite(p.drive,1.5)+driveMod),curve=node.state?.curve;
+        const process=value=>sanitizeSample(value*(1-mix)+waveshape(value,p.mode,drive,finite(p.bias,0),curve)*mix);
+        if(this.#isVoiceBundle(audio)){set('audioOut',this.#voiceBundle([...audio.lanes].map(([id,v])=>[id,process(v)])));return 0;}
+        const sample=process(this.#scalar(audio));set('audioOut',sample);return sample;
+      }
+      case 'beta.probability-router': {
+        const router=this.nodeState.get(node.id);const trigger=this.#scalar(this.#inputValue(node.id,'triggerIn',outputs));
+        const out=router?router.processSample(trigger,[p.weight1,p.weight2,p.weight3,p.weight4],Math.round(finite(p.mode,0))===0):[0,0,0,0];
+        out.forEach((v,i)=>set(`out${i+1}`,v));return 0;
+      }
+      case 'beta.event-router': {
+        const router=this.nodeState.get(node.id);const trigger=this.#scalar(this.#inputValue(node.id,'triggerIn',outputs));
+        const out=router?router.processSample(trigger,{density:p.density,memory:p.memory,maxRepeats:p.maxRepeats}):[0,0,0];
+        out.forEach((v,i)=>set(`out${i+1}`,v));return 0;
+      }
+      case 'beta.function-generator': {
+        const gen=this.nodeState.get(node.id);if(!gen){set('controlOut',0);set('audioOut',0);return 0;}
+        gen.set({frequency:p.frequency});const y=gen.processSample(this.#scalar(this.#inputValue(node.id,'controlIn',outputs)),finite(p.amount,1));
+        set('controlOut',y);set('audioOut',y);return y;
+      }
+      case 'beta.audio-to-control': {
+        const conv=this.nodeState.get(node.id);const audio=this.#scalar(this.#inputValue(node.id,'audioIn',outputs));
+        if(conv)conv.set({mode:p.mode,rate:p.rate});set('controlOut',conv?conv.processSample(audio):0);return 0;
+      }
+      case 'beta.control-to-audio': {
+        const conv=this.nodeState.get(node.id);const value=this.#scalar(this.#inputValue(node.id,'controlIn',outputs));
+        if(conv)conv.set({smoothing:p.smoothing});const sample=sanitizeSample((conv?conv.processSample(value):value)*finite(p.gain,1));set('audioOut',sample);return sample;
+      }
+      case 'beta.sample-delay': {
+        const delay=this.nodeState.get(node.id);const value=this.#scalar(this.#inputValue(node.id,'audioIn',outputs));
+        if(delay)delay.set({delay:p.delay});const sample=delay?delay.processSample(value):sanitizeSample(value);set('audioOut',sample);return sample;
+      }
+      case 'beta.harmonic-exciter': {
+        const exciter=this.nodeState.get(node.id);const value=this.#scalar(this.#inputValue(node.id,'audioIn',outputs));
+        if(!exciter){set('audioOut',sanitizeSample(value));return 0;}
+        const pitched=this.#inputValues(node.id,'pitchIn',outputs).length>0;const pitchValue=pitched?this.#inputValue(node.id,'pitchIn',outputs):null;const pitch=this.#isVoiceBundle(pitchValue)?[...pitchValue.lanes.values()][0]:pitchValue;
+        exciter.set({...p,pitch:pitched&&Number.isFinite(pitch)&&pitch>0?pitch:null});const sample=exciter.processSample(value);set('audioOut',sample);return sample;
       }
       case 'beta.ring-mod': {
         const a=this.#inputValue(node.id,'audioInA',outputs), b=this.#inputValue(node.id,'audioInB',outputs), mix=Math.max(0,Math.min(1,finite(p.mix,1)));

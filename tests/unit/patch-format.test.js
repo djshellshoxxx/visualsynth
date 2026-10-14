@@ -57,10 +57,32 @@ describe('patch schema', () => {
     expect(() => parsePatch(JSON.stringify({ format: 'visualsynth-patch', schemaVersion: 99 }))).toThrow(/schema/i);
   });
 
-  test('rejects unknown module types', () => {
+  test('preserves unknown future modules as disabled placeholders', () => {
     const document = JSON.parse(serializePatch(makePatch()));
     document.modules[0].type = 'future.unknown-module';
-    expect(() => parsePatch(JSON.stringify(document))).toThrow(/unknown module type/i);
+    document.modules[0].parameters = { futureKnob: 0.42 };
+    const parsed = parsePatch(JSON.stringify(document));
+    expect(parsed.modules.osc).toMatchObject({
+      type: 'system.unknown-placeholder',
+      enabled: false,
+      state: { originalType: 'future.unknown-module' }
+    });
+    expect(parsed.modules.osc.state.originalModule.parameters.futureKnob).toBe(0.42);
+  });
+
+  test('round-trips beta patch metadata without dropping automation, probes or MIDI mappings', () => {
+    const patch = {
+      ...makePatch(),
+      transport: { bpm: 132, playing: false },
+      modulations: [{ id: 'mod-1', source: 'lfo', destination: 'cutoff', amount: .25 }],
+      automation: [{ id: 'auto-1', moduleId: 'osc', parameterId: 'amplitude', points: [{ frame: 0, value: .2 }] }],
+      probes: [{ id: 'probe-1', connectionId: 'c1' }],
+      midiMappings: [{ controller: 74, moduleId: 'osc', parameterId: 'amplitude' }],
+      performanceView: { macros: ['osc.amplitude'] },
+      ui: { mode: 'advanced' },
+      extensions: { vendor: { enabled: true } }
+    };
+    expect(parsePatch(serializePatch(patch))).toEqual(patch);
   });
 
   test('rejects connections with missing endpoints', () => {

@@ -218,6 +218,21 @@ export class WorkspaceController {
     return true;
   }
 
+  applyPatchTransaction(patch, status = 'Updated patch') {
+    const validation = validatePatchGraph(patch);
+    if (!validation.valid) {
+      this.setStatus(validation.errors[0] ?? 'Invalid patch', 'error');
+      return false;
+    }
+    this.history.apply(Actions.replacePatch(patch));
+    this.moduleCounter = Math.max(this.moduleCounter, Object.keys(patch.modules ?? {}).length);
+    this.connectionCounter = Math.max(this.connectionCounter, patch.connections?.length ?? 0);
+    this.pendingPort = null;
+    this.setStatus(status);
+    this.#changed({ kind: 'topology' });
+    return true;
+  }
+
   undo() {
     if (!this.history.undo()) return false;
     this.setStatus('Undo');

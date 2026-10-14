@@ -2,19 +2,24 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import { clearModuleRegistry } from '../../src/graph/registry.js';
 import { validatePatchGraph } from '../../src/graph/validate.js';
 import { registerCoreModuleTypes } from '../../src/modules/core-definitions.js';
+import { registerStandardModuleTypes } from '../../src/modules/standard-definitions.js';
 import { DEFAULT_EXAMPLE_ID, EXAMPLE_PATCHES, getExamplePatch } from '../../src/presets/example-patches.js';
 import { createStarterPatch } from '../../src/presets/starter-patch.js';
 
 const EXPECTED_PRESETS = [
   'basic-saw', 'warm-analog', 'sub-bass', 'reese-bass', 'pluck', 'soft-pad', 'acid-bass', 'pulse-lead', 'bright-lead',
   'deep-house-bass', 'detuned-saw', 'chip-lead', 'organ', 'drone', 'filtered-square', 'highpass-lead', 'bandpass-radio',
-  'distorted-bass', 'crunch-lead', 'slap-delay-lead', 'dub-echo', 'space-pad', 'industrial-pulse', 'init-patch'
+  'distorted-bass', 'crunch-lead', 'slap-delay-lead', 'dub-echo', 'space-pad', 'industrial-pulse',
+  'tape-echo-lead', 'saturated-pad', 'highpass-delay-pluck', 'bandpass-echo-keys', 'distorted-pulse-bass',
+  'ambient-echo-drone', 'dual-delay-saw', 'feedback-space-lead', 'white-noise-hit', 'pink-noise-air', 'brown-noise-rumble',
+  'filtered-noise-sweep', 'init-patch'
 ];
 
 describe('factory presets', () => {
   beforeEach(() => {
     clearModuleRegistry();
     registerCoreModuleTypes();
+    registerStandardModuleTypes();
   });
 
   test('ships the complete quick-setup preset set', () => {
@@ -27,14 +32,21 @@ describe('factory presets', () => {
     expect(validatePatchGraph(patch)).toEqual({ valid: true, errors: [] });
     const noteInputs = Object.values(patch.modules).filter(module => module.type === 'core.note-input');
     const oscillators = Object.values(patch.modules).filter(module => module.type === 'core.oscillator');
+    const noiseSources = Object.values(patch.modules).filter(module => module.type === 'standard.noise');
     const masters = Object.values(patch.modules).filter(module => module.type === 'core.master-output');
     expect(noteInputs).toHaveLength(1);
-    expect(oscillators.length).toBeGreaterThanOrEqual(1);
+    expect(oscillators.length + noiseSources.length).toBeGreaterThanOrEqual(1);
     expect(masters).toHaveLength(1);
     for (const oscillator of oscillators) {
       expect(patch.connections).toContainEqual(expect.objectContaining({
         from: { moduleId: noteInputs[0].id, portId: 'pitchOut' },
         to: { moduleId: oscillator.id, portId: 'pitchIn' }
+      }));
+    }
+    for (const noise of noiseSources) {
+      expect(patch.connections).toContainEqual(expect.objectContaining({
+        from: { moduleId: noteInputs[0].id, portId: 'gateOut' },
+        to: { moduleId: noise.id, portId: 'gateIn' }
       }));
     }
   });
@@ -43,6 +55,12 @@ describe('factory presets', () => {
     expect(Object.values(getExamplePatch('distorted-bass').patch.modules).some(module => module.type === 'core.distortion')).toBe(true);
     expect(Object.values(getExamplePatch('slap-delay-lead').patch.modules).some(module => module.type === 'core.delay')).toBe(true);
     expect(Object.values(getExamplePatch('dub-echo').patch.modules).some(module => module.type === 'core.echo')).toBe(true);
+  });
+
+  test('noise presets use the real standard noise source', () => {
+    for (const id of ['white-noise-hit', 'pink-noise-air', 'brown-noise-rumble', 'filtered-noise-sweep']) {
+      expect(Object.values(getExamplePatch(id).patch.modules).some(module => module.type === 'standard.noise')).toBe(true);
+    }
   });
 
   test('returns an isolated clone so editing a preset never mutates the factory copy', () => {

@@ -1,6 +1,6 @@
 # VisualSynth
 
-VisualSynth is a browser-based visual modular synthesizer from Circuit Drift Labs. The project is currently in the **research, architecture, and specification phase**. No production synthesizer implementation is included yet.
+VisualSynth is a browser-based visual modular synthesizer from Circuit Drift Labs. A playable MVP is live at https://djshellshoxxx.github.io/visualsynth/, with beta modules and tools in active development.
 
 The product goal is to combine four things without weakening the first two: a serious playable synthesizer, a flexible modular synthesis environment, a visual explanation of the active signal path, and an interactive learning/sound-design environment.
 
@@ -37,7 +37,27 @@ BrowserToneGen is used as reference material only. It is not modified by this pr
 
 ## Status
 
-Specification/design only. Implementation begins only after the specification set is reviewed and accepted.
+**MVP implemented, beta in progress.** The app runs as a static GitHub Pages site with no build step.
+
+Implemented:
+
+- AudioWorklet engine with a typed, per-voice compiled module graph, polyphony and mono/legato voice modes
+- Core modules: Note Input, Oscillator (including sub), Noise, Mixer, multimode Filter, ADSR, LFO, VCA, Distortion, Delay, Echo, Feedback Delay, Voice Sum, Master
+- Beta modules: advanced oscillators (additive, wavetable, supersaw), multi-stage envelope, sequencers, automation and further effects
+- Visual workspace with patch cables, live module visuals, waveform/spectrum monitoring and a diagnostics panel
+- MIDI input, MIDI learn, computer-keyboard and on-screen keyboard play
+- Quick Setup presets, versioned patch save/load with migrations, IndexedDB patch library, undo history
+- Beta tools: learning mode, signal-flow highlighting, randomizer, realtime recording and offline WAV rendering
+- In-app help and configurable tooltips, reduced-motion and accessibility support
+
+## Development
+
+```sh
+npm install
+npm test               # unit and integration tests (Vitest)
+npm run test:browser   # browser tests (Playwright, Chromium and Firefox)
+npm run serve          # local dev server on http://127.0.0.1:4173
+```
 
 ## Circuit Drift Labs
 

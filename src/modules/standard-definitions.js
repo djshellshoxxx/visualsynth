@@ -19,11 +19,11 @@ export const STANDARD_MODULE_DEFINITIONS = Object.freeze([
       output('audioOut', SignalType.AUDIO)
     ],
     parameters: [
-      parameter('type', 0, 2, 0, {
+      parameter('type', 0, 3, 0, {
         curve: 'choice',
         smoothingMs: 0,
         modulatable: false,
-        choices: ['white', 'pink', 'brown']
+        choices: ['white', 'pink', 'brown', 'blue']
       }),
       parameter('level', 0, 1, 0.25, { smoothingMs: 8 }),
       parameter('seed', 1, 65535, 1, { curve: 'integer', smoothingMs: 0, modulatable: false })

@@ -25,7 +25,9 @@ export class VoiceEngine {
       voiceId: voice.voiceId,
       pitch: voice.note + this.pitchBendSemitones,
       gate: voice.gate ? 1 : 0,
-      velocity: voice.velocity
+      velocity: voice.velocity,
+      startedFrame: voice.startedFrame,
+      releasedFrame: voice.releasedFrame
     }));
   }
 

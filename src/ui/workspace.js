@@ -36,6 +36,8 @@ export class WorkspaceController {
     this.moduleCounter = Object.keys(initialPatch.modules ?? {}).length;
     this.connectionCounter = initialPatch.connections?.length ?? 0;
     this.pendingPort = null;
+    this.spawnOffset = 0;
+    this.cableFrame = null;
 
     this.stage = document.createElement('div');
     this.stage.className = 'workspace-stage';
@@ -49,6 +51,9 @@ export class WorkspaceController {
     this.root.append(this.status);
 
     this.cables = new CableLayer(this.root, { onRemove: id => this.removeConnection(id) });
+    this.resizeObserver = new ResizeObserver(() => this.#scheduleCables());
+    this.resizeObserver.observe(this.root);
+    this.root.addEventListener('scroll', () => this.#scheduleCables(), { passive: true });
     this.renderLibrary();
     this.render();
   }
@@ -85,16 +90,50 @@ export class WorkspaceController {
   }
 
   #nextPosition() {
-    const index = Object.keys(this.patch.modules).length;
-    return { x: 36 + (index % 4) * 250, y: 36 + Math.floor(index / 4) * 260 };
+    let rect = this.root.getBoundingClientRect();
+    if (rect.top >= window.innerHeight || rect.bottom <= 0) {
+      this.root.scrollIntoView({ block: 'nearest' });
+      rect = this.root.getBoundingClientRect();
+    }
+    const left = this.root.scrollLeft + 24;
+    const top = this.root.scrollTop + Math.max(0, -rect.top) + 24;
+    const right = this.root.scrollLeft + this.root.clientWidth - 214;
+    const cards = [...this.stage.querySelectorAll('.module-card')];
+    for (let x = left; x <= right; x += 214) {
+      if (!cards.some(card => x < card.offsetLeft + card.offsetWidth && x + 190 > card.offsetLeft && top < card.offsetTop + card.offsetHeight && top + 38 > card.offsetTop)) return { x, y: top };
+    }
+    // A crowded viewport still gets a reachable header, rather than a new offscreen row.
+    const offset = (this.spawnOffset++ % 4) * 16;
+    return { x: Math.max(this.root.scrollLeft, Math.min(left + offset, right)), y: top + offset };
+  }
+
+  #scheduleCables() {
+    if (this.cableFrame !== null) return;
+    this.cableFrame = requestAnimationFrame(() => {
+      this.cableFrame = null;
+      let width = Math.max(1200, this.root.scrollLeft + this.root.clientWidth);
+      let height = Math.max(800, this.root.scrollTop + this.root.clientHeight);
+      for (const card of this.stage.children) {
+        width = Math.max(width, card.offsetLeft + card.offsetWidth + 80);
+        height = Math.max(height, card.offsetTop + card.offsetHeight + 80);
+      }
+      for (const surface of [this.stage, this.cables.svg, this.root.querySelector('.workspace-grid')]) {
+        if (!surface) continue;
+        surface.style.width = `${width}px`;
+        surface.style.height = `${height}px`;
+      }
+      this.cables.render(this.patch.connections);
+    });
   }
 
   addModule(typeId) {
     const definition = getModuleType(typeId);
-    const id = `module-${++this.moduleCounter}`;
+    let id;
+    do { id = `module-${++this.moduleCounter}`; } while (Object.hasOwn(this.patch.modules, id));
     this.history.apply(Actions.addModule({ id, type: typeId, scope: definition.defaultScope, position: this.#nextPosition(), parameters: defaultsFor(definition) }));
     this.setStatus(`Added ${definition.title}. ${moduleHelp(typeId)}`);
     this.#changed({ kind: 'topology' });
+    this.stage.querySelector(`[data-module-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
     return id;
   }
 
@@ -102,7 +141,8 @@ export class WorkspaceController {
     const source = this.patch.modules[moduleId];
     if (!source) return false;
     const definition = getModuleType(source.type);
-    const id = `module-${++this.moduleCounter}`;
+    let id;
+    do { id = `module-${++this.moduleCounter}`; } while (Object.hasOwn(this.patch.modules, id));
     this.history.apply(Actions.duplicateModule(moduleId, id, { x: (source.position?.x ?? 0) + 32, y: (source.position?.y ?? 0) + 32 }));
     this.setStatus(`Duplicated ${definition.title}`);
     this.#changed({ kind: 'topology' });
@@ -122,7 +162,7 @@ export class WorkspaceController {
 
   moveModule(moduleId, position) {
     if (!this.patch.modules[moduleId]) return false;
-    this.history.apply(Actions.moveModule(moduleId, { x: Math.max(0, position.x), y: Math.max(0, position.y) }, { historyGroup: `move:${moduleId}` }));
+    this.history.apply(Actions.moveModule(moduleId, { x: Math.max(0, position.x), y: Math.max(0, position.y) }));
     const card = this.stage.querySelector(`[data-module-id="${CSS.escape(moduleId)}"]`);
     if (card) {
       card.style.left = `${Math.max(0, position.x)}px`;
@@ -154,7 +194,7 @@ export class WorkspaceController {
 
   setParameter(moduleId, parameterId, value) {
     if (!this.patch.modules[moduleId] || !Number.isFinite(value)) return false;
-    this.history.apply(Actions.setParameter(moduleId, parameterId, value, { historyGroup: `parameter:${moduleId}:${parameterId}` }));
+    this.history.apply(Actions.setParameter(moduleId, parameterId, value));
     this.#refreshModuleVisual(moduleId, parameterId, value);
     this.setStatus(`Set ${parameterId}`);
     this.#changed({ kind: 'parameter', moduleId, parameterId, value });
@@ -176,8 +216,10 @@ export class WorkspaceController {
     const endpoints = normalizedEndpoints(first, candidate);
     if (!endpoints) { this.setStatus(wiringMismatchHelp(first.port, candidate.port), 'error'); return; }
 
+    let connectionId;
+    do { connectionId = `connection-${++this.connectionCounter}`; } while (this.patch.connections.some(edge => edge.id === connectionId));
     const connection = {
-      id: `connection-${++this.connectionCounter}`,
+      id: connectionId,
       from: { moduleId: endpoints.from.moduleId, portId: endpoints.from.portId },
       to: { moduleId: endpoints.to.moduleId, portId: endpoints.to.portId }
     };
@@ -238,7 +280,7 @@ export class WorkspaceController {
       return;
     }
     if (meta.kind === 'layout') {
-      requestAnimationFrame(() => this.cables.render(this.patch.connections));
+      this.#scheduleCables();
       this.onPatchChange(structuredClone(this.patch), meta);
       return;
     }
@@ -254,6 +296,7 @@ export class WorkspaceController {
         onPort: (moduleId, portId, port, element) => this.handlePort(moduleId, portId, port, element),
         onDuplicate: moduleId => this.duplicateModule(moduleId),
         onRemove: moduleId => this.removeModule(moduleId),
+        onMovePreview: () => this.#scheduleCables(),
         onMove: (moduleId, position) => this.moveModule(moduleId, position),
         onParameterPreview: (moduleId, parameterId, value) => this.previewParameter(moduleId, parameterId, value),
         onParameter: (moduleId, parameterId, value) => this.setParameter(moduleId, parameterId, value)
@@ -261,6 +304,6 @@ export class WorkspaceController {
     }
     const empty = this.root.querySelector('.empty-state');
     if (empty) empty.hidden = Object.keys(this.patch.modules).length > 0;
-    requestAnimationFrame(() => this.cables.render(this.patch.connections));
+    this.#scheduleCables();
   }
 }

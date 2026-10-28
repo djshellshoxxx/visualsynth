@@ -25,13 +25,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium firefox
+      - name: Start Linux audio service for Firefox Web Audio
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pulseaudio
+          pulseaudio --start --exit-idle-time=-1
+      - run: npm run test:browser
+      - name: Stage application files only
+        run: |
+          mkdir _site
+          cp -R src styles index.html ui-assistance.js sitemap.xml .nojekyll _site/
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
       - name: Upload static site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment

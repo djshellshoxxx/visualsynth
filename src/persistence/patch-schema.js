@@ -33,9 +33,9 @@ function serializeModule(module) {
     parameters: sortedObject(structuredClone(module.parameters ?? {})),
     state: structuredClone(module.state ?? {}),
     ui: {
+      ...(module.ui ?? {}),
       x: Number.isFinite(module.position?.x) ? module.position.x : 0,
-      y: Number.isFinite(module.position?.y) ? module.position.y : 0,
-      ...(module.ui ?? {})
+      y: Number.isFinite(module.position?.y) ? module.position.y : 0
     }
   };
 }
@@ -45,6 +45,7 @@ function serializeConnection(connection) {
     id: connection.id,
     source: structuredClone(connection.source ?? connection.from),
     destination: structuredClone(connection.destination ?? connection.to),
+    ...(connection.modulation ? { modulation: structuredClone(connection.modulation) } : {}),
     ...(connection.signal ? { signal: connection.signal } : {}),
     enabled: connection.enabled ?? true,
     ...(connection.ui ? { ui: structuredClone(connection.ui) } : {})
@@ -86,6 +87,7 @@ function validateModule(module) {
   if (!module || typeof module !== 'object' || Array.isArray(module)) throw new Error('Patch module must be an object');
   if (!module.id || typeof module.id !== 'string') throw new Error('Patch module requires a string id');
   if (!module.type || typeof module.type !== 'string') throw new Error(`Module ${module.id} requires a type`);
+  if (module.parameters != null && (typeof module.parameters !== 'object' || Array.isArray(module.parameters))) throw new Error('Module parameters must be an object');
   const definition = getModuleType(module.type);
   if (!definition.allowedScopes.includes(module.scope)) throw new Error(`Module ${module.id} has invalid scope ${module.scope}`);
 
@@ -94,6 +96,7 @@ function validateModule(module) {
     const parameter = knownParameters.get(parameterId);
     if (!parameter) throw new Error(`Unknown parameter ${parameterId} on module ${module.id}`);
     if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`Parameter ${module.id}.${parameterId} must be a finite number`);
+    if (['integer', 'choice'].includes(parameter.curve) && !Number.isInteger(value)) throw new Error(`Parameter ${module.id}.${parameterId} must be an integer`);
     if (value < parameter.min || value > parameter.max) throw new Error(`Parameter ${module.id}.${parameterId} is outside its allowed range`);
   }
   assertFiniteTree(module.state ?? {}, `module ${module.id} state`);
@@ -108,8 +111,8 @@ function documentToPatch(document) {
   const modules = {};
   for (const raw of document.modules) {
     validateModule(raw);
-    if (modules[raw.id]) throw new Error(`Duplicate module id: ${raw.id}`);
-    modules[raw.id] = {
+    if (Object.hasOwn(modules, raw.id)) throw new Error(`Duplicate module id: ${raw.id}`);
+    Object.defineProperty(modules, raw.id, { enumerable: true, configurable: true, writable: true, value: {
       id: raw.id,
       type: raw.type,
       moduleVersion: raw.moduleVersion ?? 1,
@@ -119,16 +122,20 @@ function documentToPatch(document) {
         y: Number.isFinite(raw.ui?.y) ? raw.ui.y : 0
       },
       parameters: structuredClone(raw.parameters ?? {}),
+      ...(raw.ui && Object.keys(raw.ui).some(key => key !== 'x' && key !== 'y') ? { ui: structuredClone(raw.ui) } : {}),
       ...(raw.name && raw.name !== raw.id ? { name: raw.name } : {}),
       ...(raw.state && Object.keys(raw.state).length ? { state: structuredClone(raw.state) } : {}),
       ...(raw.enabled === false ? { enabled: false } : {}),
       ...(raw.bypass ? { bypass: true } : {}),
       ...(raw.muted ? { muted: true } : {})
-    };
+    } });
   }
 
+  const connectionIds = new Set();
   const connections = document.connections.map(raw => {
     if (!raw || typeof raw !== 'object' || !raw.id) throw new Error('Patch connection requires an id');
+    if (typeof raw.id !== 'string' || connectionIds.has(raw.id)) throw new Error('Invalid or duplicate connection id');
+    connectionIds.add(raw.id);
     const from = structuredClone(raw.source);
     const to = structuredClone(raw.destination);
     if (!from?.moduleId || !to?.moduleId) throw new Error(`Connection ${raw.id} requires source and destination endpoints`);
@@ -137,6 +144,7 @@ function documentToPatch(document) {
       id: raw.id,
       from,
       to,
+      ...(raw.modulation ? { modulation: structuredClone(raw.modulation) } : {}),
       ...(raw.signal ? { signal: raw.signal } : {}),
       ...(raw.enabled === false ? { enabled: false } : {}),
       ...(raw.ui ? { ui: structuredClone(raw.ui) } : {})
@@ -152,6 +160,12 @@ function documentToPatch(document) {
     settings
   });
 
+  // Keep optional document fields without adding empty defaults to legacy state.
+  for (const key of ['id', 'description', 'tags', 'transport', 'modulations', 'automation', 'probes', 'midiMappings', 'performanceView', 'ui', 'extensions']) {
+    const value = document[key];
+    if (key === 'id' && value === 'patch_local') continue;
+    if (value !== undefined && value !== '' && (typeof value !== 'object' || (value !== null && Object.keys(value).length))) patch[key] = structuredClone(value);
+  }
   assertFiniteTree(patch, 'patch');
   const validation = validatePatchGraph(patch);
   if (!validation.valid) throw new Error(`Patch graph is invalid: ${validation.errors.join('; ')}`);

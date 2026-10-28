@@ -2,7 +2,7 @@ const cloneVoice = voice => ({ ...voice });
 
 export class VoiceAllocator {
   constructor({ maxVoices = 8, mode = 'poly', legato = false } = {}) {
-    this.maxVoices = Math.max(1, Math.floor(maxVoices));
+    this.maxVoices = Number.isFinite(maxVoices) ? Math.max(1, Math.min(32, Math.floor(maxVoices))) : 8;
     this.mode = mode;
     this.legato = legato;
     this.voices = [];
@@ -20,7 +20,7 @@ export class VoiceAllocator {
     if (this.mode === 'mono') return this.#monoNoteOn(note, velocity, frame);
 
     const existingIndex = this.voices.findIndex(v => v.note === note && v.gate);
-    if (existingIndex >= 0) this.voices[existingIndex].gate = false;
+    if (existingIndex >= 0) { this.voices[existingIndex].gate = false; this.voices[existingIndex].releasedFrame = frame; }
 
     let stolenNote = null;
     let voice;

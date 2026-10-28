@@ -72,9 +72,10 @@ test('cancelled drags restore the module and cables without changing patch histo
   await header.scrollIntoViewIfNeeded();
   const before = await page.evaluate(() => { const w = document.querySelector('.app-shell').visualSynthWorkspace; return { position: w.patch.modules.osc.position, history: w.history.past.length }; });
   const box = await header.boundingBox();
+  await header.evaluate(element => element.addEventListener('pointerdown', event => { element.dataset.testPointerId = String(event.pointerId); }, { once: true }));
   await page.mouse.move(box.x + 30, box.y + 18); await page.mouse.down();
   await page.mouse.move(box.x + 100, box.y + 60);
-  await header.dispatchEvent('pointercancel', { pointerId: 1 });
+  await header.dispatchEvent('pointercancel', { pointerId: Number(await header.getAttribute('data-test-pointer-id')) });
   await page.mouse.up();
   await expect.poll(() => cableError(page)).toBeLessThan(2);
   const after = await page.evaluate(() => { const w = document.querySelector('.app-shell').visualSynthWorkspace; const card = w.stage.querySelector('[data-module-id="osc"]'); return { position: w.patch.modules.osc.position, history: w.history.past.length, x: card.offsetLeft, y: card.offsetTop }; });

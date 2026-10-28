@@ -14,6 +14,7 @@ function topologicalOrder(patch) {
   const adjacency = new Map(moduleIds.map((id) => [id, []]));
 
   for (const edge of patch.connections ?? []) {
+    if (edge.enabled === false) continue;
     adjacency.get(edge.from.moduleId)?.push(edge.to.moduleId);
     indegree.set(edge.to.moduleId, (indegree.get(edge.to.moduleId) ?? 0) + 1);
   }
@@ -78,7 +79,11 @@ export function compilePatchGraph(patch) {
       id,
       type: instance.type,
       scope: instance.scope,
-      parameters: { ...(instance.parameters ?? {}) },
+      parameters: { ...Object.fromEntries(definition.parameters.map(parameter => [parameter.id, parameter.defaultValue])), ...(instance.parameters ?? {}) },
+      ...(instance.enabled === false ? { enabled: false } : {}),
+      ...(instance.bypass ? { bypass: true } : {}),
+      ...(instance.muted ? { muted: true } : {}),
+      parameterDefinitions: definition.parameters.map(parameter => ({ ...parameter })),
       ports: definition.ports.map((port) => ({ ...port }))
     };
   });
@@ -87,6 +92,7 @@ export function compilePatchGraph(patch) {
   const modulations = [];
   const connections = [];
   for (const edge of sortedEdges) {
+    if (edge.enabled === false) continue;
     const modulation = modulationDescriptor(patch, edge);
     if (modulation) {
       modulations.push(modulation);

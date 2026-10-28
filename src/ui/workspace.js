@@ -91,7 +91,8 @@ export class WorkspaceController {
 
   addModule(typeId) {
     const definition = getModuleType(typeId);
-    const id = `module-${++this.moduleCounter}`;
+    let id;
+    do { id = `module-${++this.moduleCounter}`; } while (Object.hasOwn(this.patch.modules, id));
     this.history.apply(Actions.addModule({ id, type: typeId, scope: definition.defaultScope, position: this.#nextPosition(), parameters: defaultsFor(definition) }));
     this.setStatus(`Added ${definition.title}. ${moduleHelp(typeId)}`);
     this.#changed({ kind: 'topology' });
@@ -102,7 +103,8 @@ export class WorkspaceController {
     const source = this.patch.modules[moduleId];
     if (!source) return false;
     const definition = getModuleType(source.type);
-    const id = `module-${++this.moduleCounter}`;
+    let id;
+    do { id = `module-${++this.moduleCounter}`; } while (Object.hasOwn(this.patch.modules, id));
     this.history.apply(Actions.duplicateModule(moduleId, id, { x: (source.position?.x ?? 0) + 32, y: (source.position?.y ?? 0) + 32 }));
     this.setStatus(`Duplicated ${definition.title}`);
     this.#changed({ kind: 'topology' });
@@ -122,7 +124,7 @@ export class WorkspaceController {
 
   moveModule(moduleId, position) {
     if (!this.patch.modules[moduleId]) return false;
-    this.history.apply(Actions.moveModule(moduleId, { x: Math.max(0, position.x), y: Math.max(0, position.y) }, { historyGroup: `move:${moduleId}` }));
+    this.history.apply(Actions.moveModule(moduleId, { x: Math.max(0, position.x), y: Math.max(0, position.y) }));
     const card = this.stage.querySelector(`[data-module-id="${CSS.escape(moduleId)}"]`);
     if (card) {
       card.style.left = `${Math.max(0, position.x)}px`;
@@ -154,7 +156,7 @@ export class WorkspaceController {
 
   setParameter(moduleId, parameterId, value) {
     if (!this.patch.modules[moduleId] || !Number.isFinite(value)) return false;
-    this.history.apply(Actions.setParameter(moduleId, parameterId, value, { historyGroup: `parameter:${moduleId}:${parameterId}` }));
+    this.history.apply(Actions.setParameter(moduleId, parameterId, value));
     this.#refreshModuleVisual(moduleId, parameterId, value);
     this.setStatus(`Set ${parameterId}`);
     this.#changed({ kind: 'parameter', moduleId, parameterId, value });
@@ -176,8 +178,10 @@ export class WorkspaceController {
     const endpoints = normalizedEndpoints(first, candidate);
     if (!endpoints) { this.setStatus(wiringMismatchHelp(first.port, candidate.port), 'error'); return; }
 
+    let connectionId;
+    do { connectionId = `connection-${++this.connectionCounter}`; } while (this.patch.connections.some(edge => edge.id === connectionId));
     const connection = {
-      id: `connection-${++this.connectionCounter}`,
+      id: connectionId,
       from: { moduleId: endpoints.from.moduleId, portId: endpoints.from.portId },
       to: { moduleId: endpoints.to.moduleId, portId: endpoints.to.portId }
     };

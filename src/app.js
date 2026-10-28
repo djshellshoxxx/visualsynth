@@ -84,7 +84,10 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
     });
   }
 
-  const patchStore = new PatchStore();
+  let patchStore = null;
+  try { patchStore = new PatchStore(); } catch (error) {
+    workspace?.setStatus(`Browser storage unavailable: ${error.message}`, 'error');
+  }
 
   const loadPreset = (id, statusPrefix = 'Loaded preset') => {
     if (!workspace) return false;
@@ -103,6 +106,7 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   saveButton?.addEventListener('click', () => {
     if (!workspace) return;
     try {
+      if (!patchStore) throw new Error('Browser storage is unavailable');
       patchStore.save(SAVED_PATCH_ID, workspace.patch);
       recordEvent('save', 'browser patch saved');
       workspace.setStatus('Saved patch in this browser');
@@ -115,6 +119,7 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
   loadButton?.addEventListener('click', () => {
     if (!workspace) return;
     try {
+      if (!patchStore) throw new Error('Browser storage is unavailable');
       const patch = patchStore.load(SAVED_PATCH_ID);
       if (!patch) {
         workspace.setStatus('No saved patch found in this browser', 'error');
@@ -148,7 +153,15 @@ export async function bootApp({ engine = new AudioEngine() } = {}) {
 
   const visualizationScheduler = new VisualizationScheduler();
   visualizationScheduler.register(() => {
-    const telemetry = engine.diagnostics().telemetry;
+    const diagnostics = engine.diagnostics();
+    if (diagnostics.error && shell.dataset.audioState === 'running') {
+      shell.dataset.audioState = 'error';
+      if (status) status.textContent = 'unavailable';
+      if (startButton) { startButton.disabled = false; startButton.textContent = 'Retry audio'; }
+      workspace?.setStatus(diagnostics.error, 'error');
+      recordEvent('processorError', diagnostics.error);
+    }
+    const telemetry = diagnostics.telemetry;
     const peak = Math.max(0, Math.min(1, Number.isFinite(telemetry.peak) ? telemetry.peak : 0));
     const activeVoices = Number.isInteger(telemetry.activeVoices) ? telemetry.activeVoices : 0;
     if (meter) meter.setAttribute('aria-valuenow', String(peak));

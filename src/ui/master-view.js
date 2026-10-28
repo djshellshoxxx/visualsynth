@@ -43,6 +43,8 @@ export class MasterView {
       this.#sendGain(Number(slider.value));
       this.lastUnmutedGain = this.gain || this.lastUnmutedGain;
       value.textContent = this.gain.toFixed(2);
+      mute.textContent = 'Mute';
+      mute.setAttribute('aria-label', 'Mute master');
     });
     gainLabel.append(heading, value, slider);
 

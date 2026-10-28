@@ -55,6 +55,7 @@ export class VoiceEngine {
           throw new Error(`Unsupported voice event type: ${event.type}`);
       }
       dispatched.push(event);
+      if (event.type === 'panic') break;
     }
 
     this.currentFrame = endFrame;

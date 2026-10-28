@@ -36,7 +36,7 @@ export class ADSREnvelope {
   nextSample() {
     for (let guard = 0; guard < 5; guard += 1) {
       if (this.stage === EnvelopeStage.IDLE) return 0;
-      if (this.stage === EnvelopeStage.SUSTAIN) return this.sustain;
+      if (this.stage === EnvelopeStage.SUSTAIN) { this.value = this.sustain; return this.value; }
 
       if (this.stage === EnvelopeStage.ATTACK) {
         const total = this.#samples(this.attack);

@@ -65,7 +65,6 @@ export class ComputerKeyboardInput {
   }
 
   #onKeyUp(event) {
-    if (shouldIgnoreKeyboardTarget(event?.target)) return;
     const noteEvent = this.mapper.keyUp(event.code);
     if (!noteEvent) return;
     event.preventDefault?.();

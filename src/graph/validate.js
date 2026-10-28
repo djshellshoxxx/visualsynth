@@ -30,11 +30,16 @@ function detectCycle(moduleIds, connections) {
 
 export function validatePatchGraph(patch) {
   const errors = [];
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { valid: false, errors: ['Patch must be an object'] };
   const modules = patch.modules ?? {};
   const connections = patch.connections ?? [];
+  if (!modules || typeof modules !== 'object' || Array.isArray(modules) || !Array.isArray(connections)) return { valid: false, errors: ['Invalid modules or connections collection'] };
+  if (Object.keys(modules).length > 1000 || connections.length > 5000) return { valid: false, errors: ['Patch exceeds graph safety limits'] };
   const inputUse = new Map();
+  const connectionIds = new Set();
 
-  for (const module of Object.values(modules)) {
+  for (const [id, module] of Object.entries(modules)) {
+    if (!module || typeof module !== 'object' || module.id !== id) { errors.push(`Invalid module identity: ${id}`); continue; }
     let definition;
     try {
       definition = getModuleType(module.type);
@@ -48,13 +53,16 @@ export function validatePatchGraph(patch) {
   }
 
   for (const edge of connections) {
+    if (!edge || typeof edge.id !== 'string' || !edge.id || !edge.from || !edge.to) { errors.push('Invalid connection endpoints or id'); continue; }
+    if (connectionIds.has(edge.id)) errors.push(`Duplicate connection id: ${edge.id}`);
+    connectionIds.add(edge.id);
     const source = modules[edge.from.moduleId];
     const target = modules[edge.to.moduleId];
-    if (!source) {
+    if (!Object.hasOwn(modules, edge.from.moduleId) || !source) {
       errors.push(`Connection ${edge.id} references missing source module ${edge.from.moduleId}`);
       continue;
     }
-    if (!target) {
+    if (!Object.hasOwn(modules, edge.to.moduleId) || !target) {
       errors.push(`Connection ${edge.id} references missing target module ${edge.to.moduleId}`);
       continue;
     }
@@ -88,6 +96,7 @@ export function validatePatchGraph(patch) {
       errors.push(`Connection ${edge.id} crosses voice to global scope without an explicit voice boundary`);
     }
 
+    if (edge.enabled === false) continue;
     const inputKey = `${target.id}:${targetPort.id}`;
     const count = (inputUse.get(inputKey) ?? 0) + 1;
     inputUse.set(inputKey, count);
@@ -96,7 +105,7 @@ export function validatePatchGraph(patch) {
     }
   }
 
-  if (detectCycle(Object.keys(modules), connections)) {
+  if (errors.length === 0 && detectCycle(Object.keys(modules), connections.filter(edge => edge.enabled !== false))) {
     errors.push('Graph contains a zero-delay cycle');
   }
 

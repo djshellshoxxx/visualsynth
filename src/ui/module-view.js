@@ -107,7 +107,7 @@ export function createModuleElement(instance, definition, handlers = {}) {
     else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') handlers.onDuplicate?.(instance.id);
     else return;
     event.preventDefault();
-    if (dx || dy) handlers.onMove?.(instance.id, { x: (instance.position?.x ?? 0) + dx, y: (instance.position?.y ?? 0) + dy });
+    if (dx || dy) handlers.onMove?.(instance.id, { x: Number(card.dataset.x) + dx, y: Number(card.dataset.y) + dy });
   });
 
   let drag = null;
@@ -117,8 +117,8 @@ export function createModuleElement(instance, definition, handlers = {}) {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      x: instance.position?.x ?? 0,
-      y: instance.position?.y ?? 0
+      x: Number(card.dataset.x),
+      y: Number(card.dataset.y)
     };
     header.setPointerCapture?.(event.pointerId);
     event.preventDefault();

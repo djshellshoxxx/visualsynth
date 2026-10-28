@@ -10,6 +10,8 @@ The engineering order is deliberately bottom-up: types/graph/DSP before elaborat
 
 Status: complete for specification phase.
 
+> Implementation status note (audited against code): phases 1-6 and parts of 7-10 and 13 exist in `src/` (graph compiler, DSP, voice engine, workspace, visualization, persistence/presets, effects, MIDI/keyboard, diagnostics). Learning Mode, Compare Mode, probes, recording/export, sequencing and automation are not implemented. The current code is JavaScript, not the TypeScript described below.
+
 Deliverables:
 
 - research findings and references;

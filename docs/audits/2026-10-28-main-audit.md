@@ -70,3 +70,16 @@ These are explicit follow-up work, not claims of completed implementation:
 6. Visual canvases remain parameter-derived previews where labeled as such, not oscilloscope measurements of individual module outputs. Larger feature/requirements matrices remain planning documents, not evidence that every listed feature is implemented.
 
 All changes are intended for review on a separate branch. Passing automated checks cannot establish that no other defects exist.
+
+## Follow-up: cables during movement and modules appearing too low
+
+The user's reported visual problems exposed additional defects missed by the initial audit:
+
+- `styles/guidance.css` applied `position: relative` to `.module-card[title]`, overriding the canvas's `position: absolute`. Cards entered normal document flow, so saved/drag positions no longer matched their actual placement and later cards stacked far down the workspace. Removed the module selector from the tooltip positioning rule.
+- Cable coordinates subtracted the viewport rectangle of the scroll container, although the SVG itself scrolled with its content. Now measure endpoints against the SVG origin. Refresh geometry during pointer movement, scrolling and workspace resize, while retaining existing cable DOM nodes.
+- Cables were above cards and clickable on their stroke, so curves crossing a header could intercept a drag attempt and remove a cable. Cables now sit below cards; the otherwise transparent stage allows cable interaction between cards.
+- New-module placement depended on total module count and always progressed down rows. New cards now use the visible workspace's top area, prefer a free horizontal slot, and use a small stagger with focus when the viewport is crowded.
+- Dragging now accounts for workspace scrolling during the gesture; cancellation or lost capture restores the uncommitted position. Preview updates do not change history or compile the audio graph. Committed drags remain one undo operation.
+- Workspace/grid/SVG bounds expand to contain modules moved outside the initial 1200×800 surface.
+
+`tests/browser/workspace-geometry.spec.js` adds eight geometry/interaction regressions: live pointer drag and scroll alignment, visible spawning in a populated patch, cable/header hit-testing, drag cancellation, distant module bounds, CSS positioning, scrolling during capture, and label/endpoint refresh when presets reuse cable IDs. These checks compare actual SVG screen-space endpoints with actual port centers rather than only checking that paths exist.

@@ -24,8 +24,8 @@ export class CableLayer {
   }
 
   render(connections = []) {
-    this.svg.replaceChildren();
-    const rootRect = this.root.getBoundingClientRect();
+    const existing = new Map([...this.svg.children].map(group => [group.dataset.connectionGroupId, group]));
+    const rootRect = this.svg.getBoundingClientRect();
 
     for (const connection of connections) {
       const from = this.root.querySelector(`[data-module-id="${CSS.escape(connection.from.moduleId)}"] [data-port-id="${CSS.escape(connection.from.portId)}"]`);
@@ -40,7 +40,20 @@ export class CableLayer {
       const pathId = `cable-path-${String(connection.id).replace(/[^a-zA-Z0-9_-]/g, '-')}`;
       const d = `M ${start.x} ${start.y} C ${start.x + direction * bend} ${start.y}, ${end.x - direction * bend} ${end.y}, ${end.x} ${end.y}`;
 
+      const sourceLabel = endpointLabel(from, connection.from, 'OUT');
+      const destinationLabel = endpointLabel(to, connection.to, 'IN');
+      const signature = JSON.stringify([connection.from, connection.to, sourceLabel, destinationLabel]);
+      const retained = existing.get(connection.id);
+      if (retained?.connectionSignature === signature) {
+        retained.querySelector('path').setAttribute('d', d);
+        existing.delete(connection.id);
+        continue;
+      }
+
+      retained?.remove();
+      existing.delete(connection.id);
       const group = document.createElementNS(SVG_NS, 'g');
+      group.connectionSignature = signature;
       group.classList.add('cable-connection');
       group.dataset.connectionGroupId = connection.id;
 
@@ -78,9 +91,10 @@ export class CableLayer {
         group.append(text);
       };
 
-      addLabel('cable-label-source', endpointLabel(from, connection.from, 'OUT'), '8%');
-      addLabel('cable-label-destination', endpointLabel(to, connection.to, 'IN'), '58%');
+      addLabel('cable-label-source', sourceLabel, '8%');
+      addLabel('cable-label-destination', destinationLabel, '58%');
       this.svg.append(group);
     }
+    for (const group of existing.values()) group.remove();
   }
 }

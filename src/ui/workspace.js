@@ -36,6 +36,8 @@ export class WorkspaceController {
     this.moduleCounter = Object.keys(initialPatch.modules ?? {}).length;
     this.connectionCounter = initialPatch.connections?.length ?? 0;
     this.pendingPort = null;
+    this.spawnOffset = 0;
+    this.cableFrame = null;
 
     this.stage = document.createElement('div');
     this.stage.className = 'workspace-stage';
@@ -49,6 +51,9 @@ export class WorkspaceController {
     this.root.append(this.status);
 
     this.cables = new CableLayer(this.root, { onRemove: id => this.removeConnection(id) });
+    this.resizeObserver = new ResizeObserver(() => this.#scheduleCables());
+    this.resizeObserver.observe(this.root);
+    this.root.addEventListener('scroll', () => this.#scheduleCables(), { passive: true });
     this.renderLibrary();
     this.render();
   }
@@ -85,8 +90,40 @@ export class WorkspaceController {
   }
 
   #nextPosition() {
-    const index = Object.keys(this.patch.modules).length;
-    return { x: 36 + (index % 4) * 250, y: 36 + Math.floor(index / 4) * 260 };
+    let rect = this.root.getBoundingClientRect();
+    if (rect.top >= window.innerHeight || rect.bottom <= 0) {
+      this.root.scrollIntoView({ block: 'nearest' });
+      rect = this.root.getBoundingClientRect();
+    }
+    const left = this.root.scrollLeft + 24;
+    const top = this.root.scrollTop + Math.max(0, -rect.top) + 24;
+    const right = this.root.scrollLeft + this.root.clientWidth - 214;
+    const cards = [...this.stage.querySelectorAll('.module-card')];
+    for (let x = left; x <= right; x += 214) {
+      if (!cards.some(card => x < card.offsetLeft + card.offsetWidth && x + 190 > card.offsetLeft && top < card.offsetTop + card.offsetHeight && top + 38 > card.offsetTop)) return { x, y: top };
+    }
+    // A crowded viewport still gets a reachable header, rather than a new offscreen row.
+    const offset = (this.spawnOffset++ % 4) * 16;
+    return { x: Math.max(this.root.scrollLeft, Math.min(left + offset, right)), y: top + offset };
+  }
+
+  #scheduleCables() {
+    if (this.cableFrame !== null) return;
+    this.cableFrame = requestAnimationFrame(() => {
+      this.cableFrame = null;
+      let width = Math.max(1200, this.root.scrollLeft + this.root.clientWidth);
+      let height = Math.max(800, this.root.scrollTop + this.root.clientHeight);
+      for (const card of this.stage.children) {
+        width = Math.max(width, card.offsetLeft + card.offsetWidth + 80);
+        height = Math.max(height, card.offsetTop + card.offsetHeight + 80);
+      }
+      for (const surface of [this.stage, this.cables.svg, this.root.querySelector('.workspace-grid')]) {
+        if (!surface) continue;
+        surface.style.width = `${width}px`;
+        surface.style.height = `${height}px`;
+      }
+      this.cables.render(this.patch.connections);
+    });
   }
 
   addModule(typeId) {
@@ -96,6 +133,7 @@ export class WorkspaceController {
     this.history.apply(Actions.addModule({ id, type: typeId, scope: definition.defaultScope, position: this.#nextPosition(), parameters: defaultsFor(definition) }));
     this.setStatus(`Added ${definition.title}. ${moduleHelp(typeId)}`);
     this.#changed({ kind: 'topology' });
+    this.stage.querySelector(`[data-module-id="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
     return id;
   }
 
@@ -242,7 +280,7 @@ export class WorkspaceController {
       return;
     }
     if (meta.kind === 'layout') {
-      requestAnimationFrame(() => this.cables.render(this.patch.connections));
+      this.#scheduleCables();
       this.onPatchChange(structuredClone(this.patch), meta);
       return;
     }
@@ -258,6 +296,7 @@ export class WorkspaceController {
         onPort: (moduleId, portId, port, element) => this.handlePort(moduleId, portId, port, element),
         onDuplicate: moduleId => this.duplicateModule(moduleId),
         onRemove: moduleId => this.removeModule(moduleId),
+        onMovePreview: () => this.#scheduleCables(),
         onMove: (moduleId, position) => this.moveModule(moduleId, position),
         onParameterPreview: (moduleId, parameterId, value) => this.previewParameter(moduleId, parameterId, value),
         onParameter: (moduleId, parameterId, value) => this.setParameter(moduleId, parameterId, value)
@@ -265,6 +304,6 @@ export class WorkspaceController {
     }
     const empty = this.root.querySelector('.empty-state');
     if (empty) empty.hidden = Object.keys(this.patch.modules).length > 0;
-    requestAnimationFrame(() => this.cables.render(this.patch.connections));
+    this.#scheduleCables();
   }
 }

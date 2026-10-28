@@ -113,32 +113,46 @@ export function createModuleElement(instance, definition, handlers = {}) {
   let drag = null;
   header.addEventListener('pointerdown', event => {
     if (event.button !== 0) return;
+    card.focus({ preventScroll: true });
     drag = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
       x: Number(card.dataset.x),
-      y: Number(card.dataset.y)
+      y: Number(card.dataset.y),
+      workspace: card.closest('.workspace'),
+      scrollX: card.closest('.workspace')?.scrollLeft ?? 0,
+      scrollY: card.closest('.workspace')?.scrollTop ?? 0
     };
     header.setPointerCapture?.(event.pointerId);
     event.preventDefault();
   });
+  const dragPosition = event => ({
+    x: Math.max(0, Math.round(drag.x + event.clientX - drag.startX + (drag.workspace?.scrollLeft ?? 0) - drag.scrollX)),
+    y: Math.max(0, Math.round(drag.y + event.clientY - drag.startY + (drag.workspace?.scrollTop ?? 0) - drag.scrollY))
+  });
+  const preview = position => {
+    card.style.left = `${position.x}px`;
+    card.style.top = `${position.y}px`;
+    handlers.onMovePreview?.(instance.id, position);
+  };
   header.addEventListener('pointermove', event => {
     if (!drag || drag.pointerId !== event.pointerId) return;
-    card.style.left = `${Math.max(0, drag.x + event.clientX - drag.startX)}px`;
-    card.style.top = `${Math.max(0, drag.y + event.clientY - drag.startY)}px`;
+    preview(dragPosition(event));
   });
-  const endDrag = event => {
+  header.addEventListener('pointerup', event => {
     if (!drag || drag.pointerId !== event.pointerId) return;
-    const position = {
-      x: Math.max(0, Math.round(drag.x + event.clientX - drag.startX)),
-      y: Math.max(0, Math.round(drag.y + event.clientY - drag.startY))
-    };
+    const position = dragPosition(event);
     drag = null;
     handlers.onMove?.(instance.id, position);
+  });
+  const cancelDrag = event => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    preview({ x: drag.x, y: drag.y });
+    drag = null;
   };
-  header.addEventListener('pointerup', endDrag);
-  header.addEventListener('pointercancel', () => { drag = null; });
+  header.addEventListener('pointercancel', cancelDrag);
+  header.addEventListener('lostpointercapture', cancelDrag);
 
   return card;
 }

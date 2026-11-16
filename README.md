@@ -1,46 +1,80 @@
 # VisualSynth
 
-VisualSynth is a browser-based visual modular synthesizer from Circuit Drift Labs. The project is currently in the **research, architecture, and specification phase**. No production synthesizer implementation is included yet.
+VisualSynth is a browser-based visual modular synthesiser from Circuit Drift Labs. It is a static
+GitHub Pages application: custom DSP runs in an AudioWorklet, and the UI shows the signal path
+as it is patched.
 
-The product goal is to combine four things without weakening the first two: a serious playable synthesizer, a flexible modular synthesis environment, a visual explanation of the active signal path, and an interactive learning/sound-design environment.
+**Status:** specification-first project. The specification set is complete for Phase 0
+(`docs/DEVELOPMENT_PLAN.md`). Implementation is in progress: `src/` contains the graph model,
+engine, DSP modules, UI and persistence code, and the unit/integration tests pass locally. Which
+phases and requirements are complete is tracked in `spec/REQUIREMENTS_MATRIX.md`, not claimed here.
+Browser end-to-end tests have not been run as part of this README update.
 
-The governing design rule is: **everything that affects the sound should, wherever practical, be visible.** The paired quality test is that an experienced synthesizer user must still find the instrument useful after educational assistance is disabled.
+## Goals
 
-## Planned system
+- A playable synthesiser that does not depend on the educational features.
+- A modular environment: oscillators, mixer, multimode filters, envelopes, VCAs, LFOs, modulation,
+  effects, patch cables.
+- A visual explanation of the active signal path, with scopes and FFT/spectrogram views.
+- Versioned JSON patches, presets and templates.
 
-VisualSynth is specified as a static GitHub Pages application targeting:
+The design rule is that everything which affects the sound should, where practical, be visible.
 
-`https://djshellshoxxx.github.io/visualsynth/`
+## Run locally
 
-The architecture uses a versioned patch model, graph compiler, AudioWorklet-hosted modular DSP engine, explicit per-voice/global processing domains, typed patch connections, centralized parameter metadata, MIDI/keyboard input, scoped analysis probes, and a centralized visualization scheduler. The browser UI and audio thread are deliberately decoupled so graphics can degrade before audio quality does.
+Requires Node.js 22 (the CI version).
 
-Core planned capabilities include oscillators, mixer, multimode filters, envelopes, VCAs, LFOs, modulation, MIDI, polyphony, effects, patch cables, scopes, FFT/spectrogram views, recording/export, presets, templates, Learning Mode, Visual Signal Flow Mode, Compare Mode, diagnostics, and versioned patch import/export.
+```bash
+npm install
+npm run serve          # Vite dev server on http://127.0.0.1:4173
+npm test               # Vitest unit and integration suites
+npm run test:browser   # Playwright browser tests (needs: npx playwright install chromium firefox)
+```
 
-## Specification set
+Browser tests use an audio service on Linux CI (PulseAudio for Firefox Web Audio).
 
-- `research/RESEARCH.md` — technical findings and design conclusions
-- `research/REFERENCES.md` — research sources
-- `spec/PROJECT_SPEC.md` — product and system requirements
-- `spec/ARCHITECTURE.md` — runtime, graph, voice, parameter, event, and error architecture
-- `spec/DSP_SPEC.md` — DSP algorithms, rates, anti-aliasing, safety, and pseudocode
-- `spec/MODULE_SPEC.md` — definitive initial module catalogue
-- `spec/GUI_SPEC.md` — workspace, interaction, MIDI, learning, mobile, and accessibility behavior
-- `spec/VISUALIZATION_SPEC.md` — visualization scheduler, probes, master analysis, and performance rules
-- `spec/PATCH_FORMAT.md` — versioned JSON patch format and migrations
-- `spec/REQUIREMENTS_MATRIX.md` — stable requirement IDs mapped to design, implementation area, and verification
-- `spec/ACCEPTANCE_CRITERIA.md` — MVP, beta, release, and quality gates
-- `docs/DEVELOPMENT_PLAN.md` — phased build plan
+## Specifications
 
-## Reference project
+| File | Covers |
+|---|---|
+| `spec/PROJECT_SPEC.md` | product and system requirements |
+| `spec/ARCHITECTURE.md` | runtime domains, graph, voices, parameters, events, errors |
+| `spec/DSP_SPEC.md` | DSP algorithms, rates, anti-aliasing, safety |
+| `spec/MODULE_SPEC.md` | initial module catalogue |
+| `spec/GUI_SPEC.md` | workspace, interaction, MIDI, learning, accessibility |
+| `spec/VISUALIZATION_SPEC.md` | scheduler, probes, performance rules |
+| `spec/PATCH_FORMAT.md` | versioned patch format and migrations |
+| `spec/REQUIREMENTS_MATRIX.md` | requirement IDs mapped to verification |
+| `spec/ACCEPTANCE_CRITERIA.md` | MVP, beta and later acceptance |
+| `docs/DEVELOPMENT_PLAN.md` | phased delivery plan |
+| `research/` | research findings and references |
 
-BrowserToneGen is used as reference material only. It is not modified by this project. Useful concepts include its AudioWorklet boundary, pure DSP/model separation, configuration validation, offline export approach, analysis, and static GitHub Pages deployment. VisualSynth redesigns those concepts around a typed modular graph and polyphonic voice architecture.
+## Project layout
 
-## Status
+```
+src/graph/       patch graph types, validation and compilation
+src/engine/      audio engine, worklet processor, voice engine, event queue
+src/dsp/         oscillator, filter, envelope, LFO, effects, safety primitives
+src/modules/     module definitions and UI helpers
+src/persistence/ patch schema, migrations, patch store
+src/state/       actions and undo history
+src/ui/          workspace, module views, cables, keyboard and diagnostics views
+src/visual/      scheduler, waveform and spectrum visualisation
+src/input/       computer keyboard and MIDI input
+tests/unit/, tests/integration/, tests/browser/   test suites
+```
 
-Specification/design only. Implementation begins only after the specification set is reviewed and accepted.
+## Contributing
 
-## Circuit Drift Labs
+Read `AGENTS.md` first. New code is modular by default; changes to public behaviour, patch format or
+parameter IDs need a specification change and a versioned migration. Refactors go in separate PRs
+from features. Report any test you could not run.
 
-VisualSynth is part of Circuit Drift Labs:
+## Licence
 
-https://djshellshoxxx.github.io/circuitdriftlabs/
+MIT, see [LICENSE](LICENSE). Copyright Sheldon Davidson. "Circuit Drift Labs" trademarks are not
+licensed; see [COPYRIGHT-TRADEMARK.md](COPYRIGHT-TRADEMARK.md).
+
+## Wiki
+
+Wiki source pages are in [docs/wiki/](docs/wiki/Home.md).

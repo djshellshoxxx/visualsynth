@@ -1,47 +1,14 @@
-import { Oscillator } from '../dsp/oscillator.js';
-import { NoiseGenerator } from '../dsp/noise.js';
-import { StateVariableFilter } from '../dsp/filters.js';
-import { DistortionEffect, DelayEffect, EchoEffect } from '../dsp/effects.js';
-import { applyVca } from '../dsp/vca.js';
+import { GraphRenderer } from './graph-renderer.js';
 import { sanitizeSample } from '../dsp/safety.js';
 import { VoiceEngine } from './voice-engine.js';
 import { EngineMessageType, validateEngineMessage } from './protocol.js';
-
-const WAVEFORMS = ['sine', 'triangle', 'saw', 'reverse-saw', 'square', 'pulse', 'sine'];
-const NOISE_TYPES = ['white', 'pink', 'brown'];
-const FILTER_MODES = ['lowpass', 'highpass', 'bandpass', 'notch'];
-
-function waveformFrom(value) {
-  if (typeof value === 'string') return value;
-  if (Number.isInteger(value)) return WAVEFORMS[value] ?? 'sine';
-  return 'sine';
-}
-function noiseTypeFrom(value) {
-  if (typeof value === 'string') return NOISE_TYPES.includes(value) ? value : 'white';
-  if (Number.isInteger(value)) return NOISE_TYPES[value] ?? 'white';
-  return 'white';
-}
-function filterModeFrom(value) {
-  if (typeof value === 'string') return FILTER_MODES.includes(value) ? value : 'lowpass';
-  return FILTER_MODES[Math.round(value)] ?? 'lowpass';
-}
-function finite(value, fallback = 0) { return Number.isFinite(value) ? value : fallback; }
-function cloneGraph(graph) { return typeof structuredClone === 'function' ? structuredClone(graph) : JSON.parse(JSON.stringify(graph)); }
-function midiNoteToHz(note) { return 440 * (2 ** ((finite(note, 69) - 69) / 12)); }
-function voiceSeed(baseSeed, voiceId) {
-  let hash = Math.trunc(finite(baseSeed, 1)) >>> 0;
-  const text = String(voiceId ?? 0);
-  for (let index = 0; index < text.length; index += 1) hash = Math.imul(hash ^ text.charCodeAt(index), 16777619) >>> 0;
-  return hash || 1;
-}
 
 export class WorkletRuntime {
   constructor({ sampleRate = 48000, maxVoices = 8 } = {}) {
     this.sampleRate = sampleRate;
     this.revision = 0;
     this.graph = null;
-    this.nodeState = new Map();
-    this.voiceNodeState = new Map();
+    this.renderer = null;
     this.voiceEngine = new VoiceEngine({ maxVoices });
     this.currentFrame = 0;
     this.parameterUpdates = 0;
@@ -58,28 +25,21 @@ export class WorkletRuntime {
       this.rejectedGraphSwaps += 1;
       return false;
     }
-    const nextState = new Map();
-    for (const node of graph.nodes) {
-      if (!node || typeof node.id !== 'string' || typeof node.type !== 'string') return false;
-      const p = node.parameters ?? {};
-      if (node.type === 'core.oscillator' && node.scope !== 'voice') {
-        nextState.set(node.id, new Oscillator({ sampleRate: this.sampleRate, waveform: waveformFrom(p.waveform), frequency: finite(p.frequency, 220), pulseWidth: finite(p.pulseWidth, 0.5) }));
-      } else if (node.type === 'standard.noise' && node.scope !== 'voice') {
-        nextState.set(node.id, new NoiseGenerator({ seed: finite(p.seed, 1), type: noiseTypeFrom(p.type) }));
-      } else if (node.type === 'core.filter') {
-        nextState.set(node.id, new StateVariableFilter({ sampleRate: this.sampleRate, cutoff: finite(p.cutoff, 12000), resonance: finite(p.resonance, 0.1), mode: filterModeFrom(p.mode) }));
-      } else if (node.type === 'core.distortion') {
-        nextState.set(node.id, new DistortionEffect({ drive: finite(p.drive, 3), tone: finite(p.tone, 0.65), mix: finite(p.mix, 0.7) }));
-      } else if (node.type === 'core.delay') {
-        nextState.set(node.id, new DelayEffect({ sampleRate: this.sampleRate, time: finite(p.time, 0.25), feedback: finite(p.feedback, 0.3), damping: finite(p.damping, 0.25), mix: finite(p.mix, 0.35) }));
-      } else if (node.type === 'core.echo') {
-        nextState.set(node.id, new EchoEffect({ sampleRate: this.sampleRate, time: finite(p.time, 0.36), feedback: finite(p.feedback, 0.58), damping: finite(p.damping, 0.42), mix: finite(p.mix, 0.42) }));
-      }
-    }
-    this.graph = cloneGraph(graph);
+    let nextGraph;
+    let renderer;
+    try {
+      nextGraph = typeof structuredClone === 'function' ? structuredClone(graph) : JSON.parse(JSON.stringify(graph));
+      renderer = new GraphRenderer(nextGraph, this.sampleRate, this.renderer);
+    } catch { this.rejectedGraphSwaps += 1; return false; }
+    this.graph = nextGraph;
+    this.renderer = renderer;
     this.revision = revision;
-    this.nodeState = nextState;
-    this.voiceNodeState = new Map();
+    const noteInput = graph.nodes.find(node => node.type === 'core.note-input');
+    const maxVoices = noteInput?.parameters?.maxVoices;
+    if (Number.isFinite(maxVoices)) {
+      this.voiceEngine.allocator.maxVoices = Math.max(1, Math.min(32, Math.floor(maxVoices)));
+      this.voiceEngine.allocator.voices.length = Math.min(this.voiceEngine.allocator.voices.length, this.voiceEngine.allocator.maxVoices);
+    }
     this.graphSwaps += 1;
     this.panicLatched = false;
     return true;
@@ -93,50 +53,10 @@ export class WorkletRuntime {
       return true;
     }
     if (!this.graph) return false;
-    const node = this.graph.nodes.find(candidate => candidate.id === moduleId);
-    if (!node) return false;
-    node.parameters ??= {};
-    node.parameters[parameterId] = value;
-
-    const updateOscillator = oscillator => {
-      if (!(oscillator instanceof Oscillator)) return;
-      if (parameterId === 'frequency') oscillator.setFrequency(value);
-      if (parameterId === 'pulseWidth') oscillator.pulseWidth = Math.max(0.01, Math.min(0.99, value));
-      if (parameterId === 'waveform') oscillator.waveform = waveformFrom(value);
-    };
-    const updateNoise = noise => {
-      if (!(noise instanceof NoiseGenerator)) return;
-      if (parameterId === 'type') noise.type = noiseTypeFrom(value);
-      if (parameterId === 'seed') {
-        noise.seed = voiceSeed(value, 0);
-        noise.reset();
-      }
-    };
-
-    const state = this.nodeState.get(moduleId);
-    if (state instanceof Oscillator) {
-      updateOscillator(state);
-    } else if (state instanceof NoiseGenerator) {
-      updateNoise(state);
-    } else if (state instanceof StateVariableFilter) {
-      if (parameterId === 'cutoff') state.setCutoff(value);
-      if (parameterId === 'resonance') state.setResonance(value);
-      if (parameterId === 'mode') state.mode = filterModeFrom(value);
-    } else if (state instanceof DistortionEffect) {
-      if (parameterId === 'drive') state.setDrive(value);
-      if (parameterId === 'tone') state.setTone(value);
-      if (parameterId === 'mix') state.setMix(value);
-    } else if (state instanceof DelayEffect) {
-      if (parameterId === 'time') state.setTime(value);
-      if (parameterId === 'feedback') state.setFeedback(value);
-      if (parameterId === 'damping') state.setDamping(value);
-      if (parameterId === 'mix') state.setMix(value);
-    }
-
-    for (const [key, voiceState] of this.voiceNodeState) {
-      if (!key.startsWith(`${moduleId}:`)) continue;
-      updateOscillator(voiceState);
-      updateNoise(voiceState);
+    if (!this.renderer.setParameter(moduleId, parameterId, value, this.panicLatched)) return false;
+    if (parameterId === 'maxVoices' && this.graph.nodes.find(node => node.id === moduleId)?.type === 'core.note-input') {
+      this.voiceEngine.allocator.maxVoices = Math.max(1, Math.min(32, Math.floor(value)));
+      this.voiceEngine.allocator.voices.length = Math.min(this.voiceEngine.allocator.voices.length, this.voiceEngine.allocator.maxVoices);
     }
     this.parameterUpdates += 1;
     return true;
@@ -144,6 +64,11 @@ export class WorkletRuntime {
 
   handleNote(event) {
     if (!event || typeof event !== 'object') return false;
+    if (!['note-on', 'note-off', 'sustain', 'pitch-bend', 'panic'].includes(event.type)) return false;
+    if ((event.type === 'note-on' || event.type === 'note-off') && (!Number.isFinite(event.note) || event.note < 0 || event.note > 127)) return false;
+    if (event.velocity !== undefined && !Number.isFinite(event.velocity)) return false;
+    if (event.semitones !== undefined && !Number.isFinite(event.semitones)) return false;
+    if (event.type === 'panic') { this.panic(); return true; }
     const normalized = { ...event, frame: Number.isInteger(event.frame) ? event.frame : this.currentFrame };
     if (normalized.type === 'note-on') this.panicLatched = false;
     this.voiceEngine.enqueue(normalized);
@@ -151,148 +76,40 @@ export class WorkletRuntime {
   }
 
   panic(frame = this.currentFrame) {
-    this.voiceEngine.enqueue({ type: 'panic', frame });
-    this.voiceEngine.processRange(frame, frame + 1);
-    this.voiceNodeState.clear();
+    this.voiceEngine.queue.clear();
+    this.voiceEngine.allocator.panic(frame);
+    this.renderer?.reset();
     this.panicLatched = true;
   }
 
-  #incoming(nodeId, values) {
-    if (!this.graph) return [];
-    const samples = [];
-    for (const connection of this.graph.connections) if (connection.to?.moduleId === nodeId) samples.push(values.get(connection.from?.moduleId) ?? 0);
-    return samples;
-  }
-
-  #noteTranspose() {
-    const noteInput = this.graph?.nodes.find(node => node.type === 'core.note-input');
-    return finite(noteInput?.parameters?.transpose, 0);
-  }
-
-  #voiceOscillator(node, signal) {
-    const key = `${node.id}:${signal.voiceId}`;
-    let oscillator = this.voiceNodeState.get(key);
-    const parameters = node.parameters ?? {};
-    const pitch = signal.pitch + this.#noteTranspose() + finite(parameters.octave, 0) * 12 + finite(parameters.semitone, 0) + finite(parameters.cents, 0) / 100;
-    const frequency = midiNoteToHz(pitch);
-    if (!(oscillator instanceof Oscillator)) {
-      oscillator = new Oscillator({ sampleRate: this.sampleRate, waveform: waveformFrom(parameters.waveform), frequency, pulseWidth: finite(parameters.pulseWidth, 0.5) });
-      this.voiceNodeState.set(key, oscillator);
-    } else {
-      oscillator.setFrequency(frequency);
-      oscillator.waveform = waveformFrom(parameters.waveform);
-      oscillator.pulseWidth = Math.max(0.01, Math.min(0.99, finite(parameters.pulseWidth, 0.5)));
-    }
-    return oscillator;
-  }
-
-  #processVoiceOscillator(node) {
-    const activeSignals = this.voiceEngine.voiceSignals().filter(signal => signal.gate > 0);
-    const prefix = `${node.id}:`;
-    const activeKeys = new Set(activeSignals.map(signal => `${prefix}${signal.voiceId}`));
-    for (const key of this.voiceNodeState.keys()) if (key.startsWith(prefix) && !activeKeys.has(key)) this.voiceNodeState.delete(key);
-    if (activeSignals.length === 0) return 0;
-    const amplitude = finite(node.parameters?.amplitude, 0.25);
-    let sum = 0;
-    for (const signal of activeSignals) sum += this.#voiceOscillator(node, signal).nextSample() * amplitude * finite(signal.velocity, 1);
-    return sanitizeSample(sum / Math.sqrt(activeSignals.length));
-  }
-
-  #voiceNoise(node, signal) {
-    const key = `${node.id}:${signal.voiceId}`;
-    let noise = this.voiceNodeState.get(key);
-    const parameters = node.parameters ?? {};
-    if (!(noise instanceof NoiseGenerator)) {
-      noise = new NoiseGenerator({ seed: voiceSeed(parameters.seed, signal.voiceId), type: noiseTypeFrom(parameters.type) });
-      this.voiceNodeState.set(key, noise);
-    } else {
-      noise.type = noiseTypeFrom(parameters.type);
-    }
-    return noise;
-  }
-
-  #processVoiceNoise(node) {
-    const activeSignals = this.voiceEngine.voiceSignals().filter(signal => signal.gate > 0);
-    const prefix = `${node.id}:`;
-    const activeKeys = new Set(activeSignals.map(signal => `${prefix}${signal.voiceId}`));
-    for (const key of this.voiceNodeState.keys()) if (key.startsWith(prefix) && !activeKeys.has(key)) this.voiceNodeState.delete(key);
-    if (activeSignals.length === 0) return 0;
-    const level = Math.max(0, Math.min(1, finite(node.parameters?.level, 0.25)));
-    let sum = 0;
-    for (const signal of activeSignals) sum += this.#voiceNoise(node, signal).nextSample() * level * finite(signal.velocity, 1);
-    return sanitizeSample(sum / Math.sqrt(activeSignals.length));
-  }
-
-  #processNode(node, values) {
-    const incoming = this.#incoming(node.id, values);
-    const input = incoming.reduce((sum, value) => sum + finite(value), 0);
-    const parameters = node.parameters ?? {};
-    switch (node.type) {
-      case 'core.oscillator': {
-        if (node.scope === 'voice') return this.#processVoiceOscillator(node);
-        const oscillator = this.nodeState.get(node.id);
-        if (!(oscillator instanceof Oscillator)) return 0;
-        return sanitizeSample(oscillator.nextSample() * finite(parameters.amplitude, 0.25));
-      }
-      case 'standard.noise': {
-        if (node.scope === 'voice') return this.#processVoiceNoise(node);
-        const noise = this.nodeState.get(node.id);
-        if (!(noise instanceof NoiseGenerator)) return 0;
-        return sanitizeSample(noise.nextSample() * Math.max(0, Math.min(1, finite(parameters.level, 0.25))));
-      }
-      case 'core.filter': {
-        const filter = this.nodeState.get(node.id);
-        const drive = Math.max(0, finite(parameters.drive, 0));
-        const driven = drive > 0 ? Math.tanh(input * (1 + drive)) : input;
-        return filter instanceof StateVariableFilter ? filter.processSample(driven) : 0;
-      }
-      case 'core.distortion': {
-        const effect = this.nodeState.get(node.id);
-        return effect instanceof DistortionEffect ? effect.processSample(input) : sanitizeSample(input);
-      }
-      case 'core.delay': {
-        const effect = this.nodeState.get(node.id);
-        return effect instanceof DelayEffect ? effect.processSample(input) : sanitizeSample(input);
-      }
-      case 'core.echo': {
-        const effect = this.nodeState.get(node.id);
-        return effect instanceof EchoEffect ? effect.processSample(input) : sanitizeSample(input);
-      }
-      case 'core.vca': return applyVca(input, finite(parameters.gain, 1));
-      case 'core.mixer': return sanitizeSample(input * finite(parameters.gain, 0.5));
-      case 'core.master-output': return sanitizeSample(input * finite(parameters.gain, 0.8));
-      default: return sanitizeSample(input);
-    }
-  }
-
   processBlock(length = 128) {
-    const blockLength = Math.max(0, Math.floor(length));
+    const blockLength = Number.isFinite(length) ? Math.max(0, Math.floor(length)) : 0;
     const left = new Float32Array(blockLength);
     const right = new Float32Array(blockLength);
+    this.processInto(left, right);
+    return { left, right };
+  }
+
+  processInto(left, right) {
+    const blockLength = left.length;
     if (!this.graph || this.panicLatched || blockLength === 0) {
       this.currentFrame += blockLength;
       this.lastPeak = 0;
-      return { left, right };
+      left.fill(0); right?.fill(0);
+      return;
     }
     let peak = 0;
     for (let i = 0; i < blockLength; i += 1) {
       const frame = this.currentFrame + i;
-      this.voiceEngine.processRange(frame, frame + 1);
-      const values = new Map();
-      let master = 0;
-      for (const node of this.graph.nodes) {
-        const value = this.#processNode(node, values);
-        values.set(node.id, value);
-        if (node.type === 'core.master-output') master += value;
-      }
-      const sample = sanitizeSample(master * this.masterGain);
+      if (this.voiceEngine.queue.events[0]?.frame < frame + 1) this.voiceEngine.processRange(frame, frame + 1);
+      const sample = Math.max(-1, Math.min(1, sanitizeSample(this.renderer.render(this.voiceEngine.allocator, frame) * this.masterGain)));
       left[i] = sample;
-      right[i] = sample;
+      if (right) right[i] = sample;
       peak = Math.max(peak, Math.abs(sample));
     }
     this.currentFrame += blockLength;
     this.lastPeak = peak;
-    return { left, right };
+
   }
 
   diagnostics() {
@@ -333,9 +150,7 @@ if (typeof ProcessorBase === 'function' && typeof globalThis.registerProcessor =
     process(_inputs, outputs) {
       const output = outputs[0];
       if (!output?.length) return true;
-      const block = this.runtime.processBlock(output[0]?.length ?? 128);
-      output[0]?.set(block.left);
-      if (output[1]) output[1].set(block.right);
+      this.runtime.processInto(output[0], output[1]);
       this.telemetryCounter += 1;
       if (this.telemetryCounter >= 16) {
         this.telemetryCounter = 0;

@@ -30,6 +30,7 @@ function migrateV0ToV1(document) {
       id: connection.id,
       source: structuredClone(connection.source ?? connection.from),
       destination: structuredClone(connection.destination ?? connection.to),
+      ...(connection.modulation ? { modulation: structuredClone(connection.modulation) } : {}),
       ...(connection.signal ? { signal: connection.signal } : {}),
       enabled: connection.enabled ?? true,
       ...(connection.ui ? { ui: structuredClone(connection.ui) } : {})

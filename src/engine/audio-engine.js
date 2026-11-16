@@ -26,22 +26,45 @@ export class AudioEngine {
     this.revision = 0;
     this.telemetry = { peak: 0, activeVoices: 0 };
     this.remoteDiagnostics = null;
+    this.lastError = null;
+    this.moduleLoaded = false;
   }
 
   async start() {
+    if (!this.starting) this.starting = this.#start().finally(() => { this.starting = null; });
+    return this.starting;
+  }
+
+  async #start() {
     if (!this.context) this.context = this.contextFactory();
 
     if (this.context.state !== 'running' && typeof this.context.resume === 'function') await this.context.resume();
 
     if (!this.node) {
       if (!this.context.audioWorklet?.addModule) throw new Error('AudioWorklet module loading is unavailable');
-      await this.context.audioWorklet.addModule(this.workletUrl);
+      if (!this.moduleLoaded) {
+        await this.context.audioWorklet.addModule(this.workletUrl);
+        this.moduleLoaded = true;
+      }
       this.node = this.nodeFactory(this.context);
       this.node.port.onmessage = event => this.#handleProcessorMessage(event.data);
+      const node = this.node;
+      const onProcessorError = () => {
+        if (this.node !== node) return;
+        node.disconnect?.();
+        node.port.onmessage = null;
+        this.node = null;
+        this.started = false;
+        this.telemetry = { peak: 0, activeVoices: 0 };
+        this.lastError = 'Audio processor stopped. Restart audio to recover.';
+      };
+      if (typeof node.addEventListener === 'function') node.addEventListener('processorerror', onProcessorError, { once: true });
+      else node.onprocessorerror = onProcessorError;
       this.node.connect(this.context.destination);
       this.#post(EngineMessageType.INITIALIZE, { sampleRate: this.context.sampleRate ?? null });
     }
 
+    this.lastError = null;
     this.started = true;
     return this;
   }
@@ -95,6 +118,7 @@ export class AudioEngine {
   diagnostics() {
     return {
       started: this.started,
+      error: this.lastError,
       contextState: this.context?.state ?? 'uninitialized',
       sampleRate: Number.isFinite(this.context?.sampleRate) ? this.context.sampleRate : null,
       baseLatency: Number.isFinite(this.context?.baseLatency) ? this.context.baseLatency : null,

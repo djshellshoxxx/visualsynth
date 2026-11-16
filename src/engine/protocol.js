@@ -24,6 +24,7 @@ export function validateEngineMessage(message) {
   if (!KNOWN_TYPES.has(message.type)) errors.push(`Unknown engine message type: ${String(message.type)}`);
   if (message.payload !== undefined && (message.payload === null || typeof message.payload !== 'object' || Array.isArray(message.payload))) {
     errors.push('Message payload must be an object');
+    return { valid: false, errors };
   }
 
   const payload = message.payload ?? {};

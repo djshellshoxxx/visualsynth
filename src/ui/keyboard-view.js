@@ -25,6 +25,7 @@ export class KeyboardView {
   releaseAll() {
     for (const note of new Set(this.activePointers.values())) this.#emit('note-off', note, 0);
     this.activePointers.clear();
+    for (const key of this.root.querySelectorAll('.piano-key')) key.setAttribute('aria-pressed', 'false');
   }
 
   render() {
@@ -63,17 +64,20 @@ export class KeyboardView {
       key.addEventListener('pointerdown', event => {
         if (event.button !== 0 && event.pointerType !== 'touch') return;
         try { key.setPointerCapture?.(event.pointerId); } catch { /* Synthetic or unsupported pointers may not be capturable. */ }
+        const alreadyHeld = [...this.activePointers.values()].includes(note);
         this.activePointers.set(event.pointerId, note);
         key.setAttribute('aria-pressed', 'true');
-        this.#emit('note-on', note);
+        if (!alreadyHeld) this.#emit('note-on', note);
         event.preventDefault();
       });
       const release = event => {
         const activeNote = this.activePointers.get(event.pointerId);
         if (activeNote === undefined) return;
         this.activePointers.delete(event.pointerId);
-        this.#emit('note-off', activeNote, 0);
-        key.setAttribute('aria-pressed', 'false');
+        if (![...this.activePointers.values()].includes(activeNote)) {
+          this.#emit('note-off', activeNote, 0);
+          key.setAttribute('aria-pressed', 'false');
+        }
         event.preventDefault();
       };
       key.addEventListener('pointerup', release);
@@ -81,6 +85,20 @@ export class KeyboardView {
       key.addEventListener('lostpointercapture', event => {
         if (this.activePointers.has(event.pointerId)) release(event);
       });
+      const keyboardId = `keyboard:${note}`;
+      key.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        if (event.repeat || this.activePointers.has(keyboardId)) return;
+        const held = [...this.activePointers.values()].includes(note);
+        this.activePointers.set(keyboardId, note);
+        key.setAttribute('aria-pressed', 'true');
+        if (!held) this.#emit('note-on', note);
+      });
+      key.addEventListener('keyup', event => {
+        if (event.key === 'Enter' || event.key === ' ') release({ pointerId: keyboardId, preventDefault: () => event.preventDefault() });
+      });
+      key.addEventListener('blur', () => release({ pointerId: keyboardId, preventDefault() {} }));
       keys.append(key);
     }
 
